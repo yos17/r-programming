@@ -1,36 +1,65 @@
 # Chapter 2: Types and Expressions
 
-*What R stores. How it does arithmetic. Type coercion and what it means.*
+*What R stores. How it does arithmetic. Parsing real data.*
+
+---
+
+## Where We Left Off
+
+End of Chapter 1, `analyze.R` looks like this:
+
+```r
+# analyze.R — Chapter 1
+args <- commandArgs(trailingOnly = TRUE)
+
+if (length(args) < 1) {
+  cat("Usage: Rscript analyze.R <file.csv>\n")
+  quit(status = 1)
+}
+
+filename <- args[1]
+
+if (!file.exists(filename)) {
+  cat("Error: file not found:", filename, "\n")
+  quit(status = 1)
+}
+
+cat("analyze.R\n")
+cat("File:", filename, "\n")
+```
+
+It reads a filename. It doesn't read the file. We can't do anything useful until we understand R's types — what the data *is* when it comes in.
+
+---
+
+## The Problem
+
+CSV files are text. Every value comes in as a string. The number `50000` arrives as `"50000"`. Before we can compute with it, we need to parse it.
+
+This chapter is about what R can store and how to convert between types.
 
 ---
 
 ## The Basic Types
 
-R has five atomic types. Everything is built from these:
+R has five atomic types:
 
 ```r
-42L          # integer   (the L means "store as integer, not double")
+42L          # integer   (L = "store as integer")
 3.14         # double    (the default numeric type)
 TRUE         # logical
 "hello"      # character
 2 + 3i       # complex   (rarely needed)
 ```
 
-Check the type of anything with `class()` or `typeof()`:
+Check the type of anything with `class()`:
 
 ```r
 class(42L)        # "integer"
 class(3.14)       # "numeric"
 class(TRUE)       # "logical"
 class("hello")    # "character"
-
-typeof(42L)       # "integer"
-typeof(3.14)      # "double"
-typeof(TRUE)      # "logical"
-typeof("hello")   # "character"
 ```
-
-`class()` is the high-level description R uses for dispatch. `typeof()` is the low-level storage type. For now, use `class()`.
 
 ---
 
@@ -44,13 +73,9 @@ y <- 42L      # integer (explicit)
 
 class(x)      # "numeric"
 class(y)      # "integer"
-
-is.integer(x)  # FALSE
-is.integer(y)  # TRUE
-is.double(x)   # TRUE
 ```
 
-Arithmetic works as expected:
+Arithmetic:
 
 ```r
 5 / 2         # 2.5   (double division)
@@ -59,67 +84,67 @@ Arithmetic works as expected:
 2 ^ 10        # 1024
 ```
 
-Floating point caveat — always relevant:
+The floating point trap — every R programmer hits this eventually:
 
 ```r
-0.1 + 0.2 == 0.3    # FALSE — floating point!
+0.1 + 0.2 == 0.3    # FALSE
 0.1 + 0.2            # 0.3 ... but not exactly
 ```
 
-Use `all.equal()` to compare floats:
+Computers store numbers in binary. `0.1` has no exact binary representation. Use `all.equal()` to compare floats:
 
 ```r
 all.equal(0.1 + 0.2, 0.3)   # TRUE
 ```
 
-Special numeric values:
+Special values:
 
 ```r
 Inf          # infinity
--Inf         # negative infinity
+-Inf         # negative infinity  
 NaN          # Not a Number (0/0)
-NA           # missing value (works for any type)
+NA           # missing value — works for any type
 NULL         # absence of a value (different from NA)
 
 1 / 0        # Inf
--1 / 0       # -Inf
 0 / 0        # NaN
 is.na(NA)    # TRUE
+is.na(NaN)   # TRUE  (NaN is also NA)
 is.null(NULL)# TRUE
-is.nan(NaN)  # TRUE
-is.infinite(Inf) # TRUE
 ```
+
+`NA` means "we have a slot but don't know the value." `NULL` means "there's no slot at all."
 
 ---
 
 ## Logical
 
-`TRUE` and `FALSE`. Can be abbreviated `T` and `F` (but avoid it — `T` and `F` can be overwritten).
+`TRUE` and `FALSE`. The result of comparisons:
+
+```r
+5 > 3          # TRUE
+5 < 3          # FALSE
+5 == 5         # TRUE  (== not =)
+5 != 4         # TRUE
+5 >= 5         # TRUE
+```
+
+Logical operators:
 
 ```r
 TRUE & FALSE    # AND → FALSE
 TRUE | FALSE    # OR  → TRUE
 !TRUE           # NOT → FALSE
-
-TRUE && FALSE   # short-circuit AND (for single values)
-TRUE || FALSE   # short-circuit OR
 ```
 
-`&` and `|` are vectorized — they operate element-by-element.  
-`&&` and `||` evaluate only the first element (used in `if` conditions).
-
-Comparisons return logical:
+`TRUE` and `FALSE` are also `1` and `0` in arithmetic:
 
 ```r
-5 > 3          # TRUE
-5 < 3          # FALSE
-5 == 5         # TRUE
-5 != 4         # TRUE
-5 >= 5         # TRUE
-5 <= 4         # FALSE
+TRUE + TRUE       # 2
+sum(c(TRUE, FALSE, TRUE, TRUE))  # 3
 ```
 
-**Important**: use `==` to compare, not `=` (which assigns).
+This is useful: `sum(x > 0)` counts how many elements are positive.
 
 ---
 
@@ -130,14 +155,14 @@ Strings use single or double quotes:
 ```r
 x <- "Hello"
 y <- 'World'
-z <- "It's a test"         # single quote inside double quotes
-w <- 'She said "hello"'    # double quote inside single quotes
+z <- "It's fine"          # single quote inside double quotes
+w <- 'She said "hello"'   # double quote inside single quotes
 ```
 
 Key string functions:
 
 ```r
-nchar("hello")              # 5 — number of characters
+nchar("hello")              # 5
 toupper("hello")            # "HELLO"
 tolower("HELLO")            # "hello"
 paste("Hello", "World")     # "Hello World"
@@ -145,36 +170,23 @@ paste0("Hello", "World")    # "HelloWorld"
 paste("a", "b", "c", sep = "-")  # "a-b-c"
 substr("Hello World", 1, 5) # "Hello"
 gsub("l", "L", "hello")    # "heLLo" — replace all
-sub("l", "L", "hello")     # "heLlo" — replace first only
 grepl("World", "Hello World")  # TRUE — does pattern match?
-```
-
-`paste()` is R's main string builder. Use it constantly:
-
-```r
-name <- "Alice"
-age  <- 30
-cat(paste("Name:", name, "Age:", age), "\n")
 ```
 
 ---
 
 ## Type Coercion
 
-R automatically converts between types when needed. Understanding this saves hours of debugging.
+R converts between types automatically. Understanding this prevents bugs.
 
-**Implicit coercion** — happens automatically:
+**Implicit coercion:**
 
 ```r
-TRUE + TRUE       # 2 (logical → numeric: TRUE=1, FALSE=0)
-TRUE + 5          # 6
-sum(c(TRUE, FALSE, TRUE, TRUE))  # 3 — count of TRUE values
-
-paste(42)         # "42" — numeric → character
-paste(TRUE)       # "TRUE"
+TRUE + 5          # 6  (logical → numeric)
+paste(42)         # "42"  (numeric → character)
 ```
 
-**Explicit coercion** — you control it:
+**Explicit coercion:**
 
 ```r
 as.numeric("3.14")   # 3.14
@@ -182,11 +194,10 @@ as.integer("42")     # 42
 as.character(100)    # "100"
 as.logical(0)        # FALSE
 as.logical(1)        # TRUE
-as.logical("TRUE")   # TRUE
-as.numeric("abc")    # NA (with warning — can't convert)
+as.numeric("abc")    # NA  (with warning)
 ```
 
-The coercion hierarchy (lowest to highest):
+The coercion hierarchy:
 ```
 logical → integer → double → character
 ```
@@ -196,152 +207,171 @@ When types mix, R promotes to the "higher" type:
 ```r
 c(1L, 2.5)     # numeric (integer promoted to double)
 c(1, "a")      # "1" "a" (numeric promoted to character)
-c(TRUE, 1L)    # 1 1 (logical promoted to integer)
 ```
-
----
-
-## A Program: Unit Converter
-
-A proper unit converter using functions and type checking:
-
-```r
-# unit_converter.R
-# Convert between common units with validation
-
-convert <- function(value, from, to) {
-  # Conversion table (all to SI base unit)
-  # Length: base = meters
-  # Weight: base = kilograms
-  # Temperature: handled separately
-  
-  factors <- list(
-    # Length
-    m       = 1,
-    km      = 1000,
-    cm      = 0.01,
-    mm      = 0.001,
-    inch    = 0.0254,
-    foot    = 0.3048,
-    yard    = 0.9144,
-    mile    = 1609.344,
-    
-    # Weight
-    kg      = 1,
-    g       = 0.001,
-    lb      = 0.453592,
-    oz      = 0.028350,
-    
-    # Area
-    sqm     = 1,
-    sqkm    = 1e6,
-    sqft    = 0.092903,
-    acre    = 4046.86,
-    hectare = 10000
-  )
-  
-  # Handle temperature separately
-  if (from == "C" && to == "F") return(value * 9/5 + 32)
-  if (from == "F" && to == "C") return((value - 32) * 5/9)
-  if (from == "C" && to == "K") return(value + 273.15)
-  if (from == "K" && to == "C") return(value - 273.15)
-  if (from == "F" && to == "K") return((value - 32) * 5/9 + 273.15)
-  if (from == "K" && to == "F") return((value - 273.15) * 9/5 + 32)
-  if (from == to) return(value)
-  
-  # Look up conversion factors
-  if (!from %in% names(factors)) stop(paste("Unknown unit:", from))
-  if (!to   %in% names(factors)) stop(paste("Unknown unit:", to))
-  
-  # Convert: value → base unit → target unit
-  base_value <- value * factors[[from]]
-  result     <- base_value / factors[[to]]
-  return(result)
-}
-
-# Format result nicely
-show_conversion <- function(value, from, to) {
-  result <- convert(value, from, to)
-  cat(sprintf("%g %s = %g %s\n", value, from, result, to))
-}
-
-# Run conversions
-cat("=== Length ===\n")
-show_conversion(1,   "mile", "km")
-show_conversion(100, "m",    "foot")
-show_conversion(6,   "foot", "m")
-show_conversion(5.9, "foot", "cm")
-
-cat("\n=== Weight ===\n")
-show_conversion(70,  "kg",   "lb")
-show_conversion(185, "lb",   "kg")
-show_conversion(1,   "oz",   "g")
-
-cat("\n=== Temperature ===\n")
-show_conversion(100,  "C", "F")
-show_conversion(32,   "F", "C")
-show_conversion(0,    "C", "K")
-show_conversion(98.6, "F", "C")
-
-cat("\n=== Area ===\n")
-show_conversion(1,  "acre",    "sqm")
-show_conversion(1,  "hectare", "sqft")
-```
-
-Output:
-```
-=== Length ===
-1 mile = 1.60934 km
-100 m = 328.084 foot
-6 foot = 1.8288 m
-5.9 foot = 179.832 cm
-
-=== Weight ===
-70 kg = 154.324 lb
-185 lb = 83.9145 kg
-1 oz = 28.35 g
-
-=== Temperature ===
-100 C = 212 F
-32 F = 0 C
-0 C = 273.15 K
-98.6 F = 37 C
-
-=== Area ===
-1 acre = 4046.86 sqm
-1 hectare = 107639 sqft
-```
-
-New things here:
-- `list()` — a named list used as a lookup table (Chapter 9)
-- `%in%` — tests if a value is in a vector
-- `stop()` — throws an error with a message
-- `sprintf()` — C-style formatted output (`%g` = compact number format)
-- `!` — logical NOT
-- `names()` — gets the names of a named object
 
 ---
 
 ## sprintf: Formatted Output
 
-`sprintf()` gives you precise control over output:
+`sprintf()` gives precise control over output. You'll use it constantly:
 
 ```r
-sprintf("%.2f", 3.14159)     # "3.14"     (2 decimal places)
-sprintf("%d items", 42L)     # "42 items"  (integer)
+sprintf("%.2f", 3.14159)          # "3.14"
+sprintf("%d items", 42L)          # "42 items"
 sprintf("%s is %d", "Alice", 30)  # "Alice is 30"
-sprintf("%10.3f", 3.14)      # "     3.140" (width 10, 3 decimals)
-sprintf("%-10s|", "left")    # "left      |" (left-aligned)
-sprintf("%05d", 42)          # "00042" (zero-padded)
+sprintf("%10.3f", 3.14)           # "     3.140" (width 10, 3 decimals)
+sprintf("%-10s|", "left")         # "left      |" (left-aligned)
+sprintf("%05d", 42)               # "00042" (zero-padded)
 ```
 
 Format codes:
 - `%d` — integer
-- `%f` — float (decimal notation)
-- `%e` — float (scientific notation)
-- `%g` — float (shorter of `%f` / `%e`)
+- `%f` — float (decimal)
+- `%g` — float (shorter of `%f`/`%e`)
 - `%s` — string
-- `%i` — integer (same as `%d`)
+
+---
+
+## Parsing Real Data
+
+Here's the problem `analyze.R` will face. You read a CSV line like:
+
+```
+"Alice",50000,Engineering,TRUE
+```
+
+Everything is a string: `"Alice"`, `"50000"`, `"Engineering"`, `"TRUE"`. Before computing, you parse:
+
+```r
+name   <- "Alice"
+salary <- as.numeric("50000")    # 50000
+dept   <- "Engineering"
+active <- as.logical("TRUE")     # TRUE
+
+# Now you can compute:
+cat(sprintf("%s earns $%.0f\n", name, salary))
+```
+
+When parsing fails, you get `NA`:
+
+```r
+as.numeric("not a number")   # NA (with warning)
+```
+
+Always check for NAs after parsing:
+
+```r
+salary_str <- "not a number"
+salary <- suppressWarnings(as.numeric(salary_str))
+if (is.na(salary)) {
+  cat("Warning: could not parse salary:", salary_str, "\n")
+}
+```
+
+`suppressWarnings()` silences the warning when you're handling it yourself.
+
+---
+
+## Unit Conversion
+
+Here's where types and arithmetic come together. A small unit converter:
+
+```r
+# Conversion factors (relative to SI base unit)
+factors <- c(
+  m = 1, km = 1000, cm = 0.01, inch = 0.0254,
+  foot = 0.3048, mile = 1609.344,
+  kg = 1, g = 0.001, lb = 0.453592
+)
+
+convert <- function(value, from, to) {
+  if (!from %in% names(factors)) stop(paste("Unknown unit:", from))
+  if (!to   %in% names(factors)) stop(paste("Unknown unit:", to))
+  value * factors[[from]] / factors[[to]]
+}
+
+cat(sprintf("1 mile = %.3f km\n", convert(1, "mile", "km")))
+cat(sprintf("185 lb = %.1f kg\n", convert(185, "lb", "kg")))
+cat(sprintf("6 foot = %.1f cm\n", convert(6, "foot", "cm") * 100))
+```
+
+Output:
+```
+1 mile = 1.609 km
+185 lb = 83.9 kg
+6 foot = 182.9 cm
+```
+
+New here: `stop()` throws an error with a message. `%in%` tests if a value is in a vector. `names()` gets names of a named vector.
+
+---
+
+## analyze.R: Chapter 2 Version
+
+The new problem: we want to echo back some info about the file. But first we need to read it.
+
+We'll properly read the file in Chapter 7. For now, add type parsing and unit conversion as a standalone feature:
+
+```r
+# analyze.R — Chapter 2
+# Usage: Rscript analyze.R <file.csv> [--units from:to:value]
+
+args <- commandArgs(trailingOnly = TRUE)
+
+if (length(args) < 1) {
+  cat("Usage: Rscript analyze.R <file.csv>\n")
+  quit(status = 1)
+}
+
+filename <- args[1]
+
+if (!file.exists(filename)) {
+  cat("Error: file not found:", filename, "\n")
+  quit(status = 1)
+}
+
+cat("analyze.R\n")
+cat("File:", filename, "\n")
+cat("Date:", format(Sys.time(), "%Y-%m-%d %H:%M:%S"), "\n")
+
+# Unit conversion sub-command
+unit_arg <- grep("^--units=", args, value = TRUE)
+if (length(unit_arg) > 0) {
+  parts <- strsplit(sub("^--units=", "", unit_arg), ":")[[1]]
+  if (length(parts) == 3) {
+    from  <- parts[1]
+    to    <- parts[2]
+    value <- as.numeric(parts[3])
+    
+    factors <- c(
+      m = 1, km = 1000, cm = 0.01, inch = 0.0254,
+      foot = 0.3048, mile = 1609.344,
+      kg = 1, g = 0.001, lb = 0.453592
+    )
+    
+    if (from %in% names(factors) && to %in% names(factors) && !is.na(value)) {
+      result <- value * factors[[from]] / factors[[to]]
+      cat(sprintf("%.4g %s = %.4g %s\n", value, from, result, to))
+    } else {
+      cat("Error: invalid unit conversion\n")
+    }
+  }
+}
+```
+
+Run it:
+
+```
+Rscript analyze.R data.csv --units=mile:km:26.2
+```
+
+Output:
+```
+analyze.R
+File: data.csv
+Date: 2026-04-02 22:06:00
+26.2 mile = 42.16 km
+```
 
 ---
 
@@ -349,13 +379,12 @@ Format codes:
 
 **1. Type inspection**
 
-For each expression, predict what `class()` returns before running it:
+For each expression, predict what `class()` returns before running:
 ```r
 class(1)
 class(1L)
 class(TRUE)
 class("1")
-class(1 + 2i)
 class(NA)
 class(NULL)
 class(Inf)
@@ -367,9 +396,7 @@ class(NaN)
 What does each evaluate to? Predict, then run:
 ```r
 as.numeric(TRUE)
-as.numeric(FALSE)
 as.integer(3.9)
-as.character(3.14)
 as.logical(0)
 as.logical(42)
 as.numeric("3.14abc")
@@ -378,23 +405,14 @@ TRUE + TRUE + TRUE
 
 **3. String manipulation**
 
-Write expressions (not a function) that:
+Write expressions that:
 - Count the characters in `"supercalifragilistic"`
-- Convert `"Hello World"` to all uppercase
+- Convert `"Hello World"` to uppercase
 - Replace all `"o"` in `"one two three four"` with `"0"`
 - Check if `"rain"` appears in `"The rain in Spain"`
 - Extract characters 5–10 from `"Hello, World!"`
 
-**4. Extend the converter**
-
-Add speed conversions to `unit_converter.R`:
-- `mph` (miles per hour) → base unit `mps` (meters per second): 1 mph = 0.44704 mps
-- `kph` (km per hour): 1 kph = 0.27778 mps
-- `knot`: 1 knot = 0.514444 mps
-
-Test: convert 100 kph to mph. (Answer: ~62.1 mph)
-
-**5. sprintf formatting**
+**4. sprintf formatting**
 
 Format a "receipt" using `sprintf`:
 ```
@@ -405,8 +423,19 @@ Widget C        10     1.49    14.90
                             --------
                        Total:  69.86
 ```
-Columns should be aligned. Use `sprintf` with width specifiers.
+Columns should be aligned.
+
+**5. The growing program (do this one)**
+
+Extend the unit conversion to handle temperature (Celsius/Fahrenheit/Kelvin), which can't use simple multiplication factors. Use `if/else if` chains for temperature, factors for the rest. Test:
+
+```
+Rscript analyze.R data.csv --units=C:F:100
+100 C = 212 F
+```
+
+This type-aware parsing — checking what kind of conversion is needed before applying it — is exactly the pattern we'll use in Chapter 3 when we start filtering data.
 
 ---
 
-*Next: Chapter 3 — Control Flow: if, for, while, and flow of execution*
+*Next: Chapter 3 — Control Flow: add filtering to analyze.R*

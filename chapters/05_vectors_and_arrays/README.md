@@ -4,14 +4,36 @@
 
 ---
 
+## Where We Left Off
+
+`analyze.R` has a `compute_stats()` function from Chapter 4. It works, but internally it uses a loop to process rows. We have this:
+
+```r
+total <- 0
+for (i in seq_along(values)) {
+  total <- total + values[i]
+}
+mean_val <- total / length(values)
+```
+
+The R way:
+
+```r
+mean_val <- mean(values)
+```
+
+Not just shorter — fundamentally different. In R, operations on vectors are implemented in compiled C code. They're not loops at the R level; they're single operations on contiguous memory. This chapter explains why — and rewires how you think about data.
+
+---
+
 ## Everything Is a Vector
 
 In R, there are no scalars. A "single number" is a vector of length 1.
 
 ```r
 x <- 42
-length(x)   # 1
-is.vector(x)  # TRUE
+length(x)    # 1
+is.vector(x) # TRUE
 ```
 
 This is why `print(42)` shows `[1] 42` — the `[1]` is the index of the first element displayed on that line.
@@ -25,14 +47,14 @@ This is why `print(42)` shows `[1] 42` — the `[1]` is the index of the first e
 x <- c(1, 2, 3, 4, 5)
 
 # Sequences
-1:10              # 1 2 3 4 5 6 7 8 9 10
-seq(1, 10, by=2)  # 1 3 5 7 9
-seq(0, 1, length.out=5)  # 0.00 0.25 0.50 0.75 1.00
+1:10                     # 1 2 3 4 5 6 7 8 9 10
+seq(1, 10, by = 2)       # 1 3 5 7 9
+seq(0, 1, length.out = 5) # 0.00 0.25 0.50 0.75 1.00
 
 # Repetition
-rep(0, 5)          # 0 0 0 0 0
-rep(c(1,2,3), 3)   # 1 2 3 1 2 3 1 2 3
-rep(c(1,2,3), each=3)  # 1 1 1 2 2 2 3 3 3
+rep(0, 5)                # 0 0 0 0 0
+rep(c(1,2,3), 3)         # 1 2 3 1 2 3 1 2 3
+rep(c(1,2,3), each = 3)  # 1 1 1 2 2 2 3 3 3
 
 # Character
 fruits <- c("apple", "banana", "cherry")
@@ -57,12 +79,12 @@ R uses 1-based indexing (not 0-based like most languages).
 ```r
 x <- c(10, 20, 30, 40, 50)
 
-x[1]          # 10 — first element
-x[5]          # 50 — last element
-x[c(1,3,5)]   # 10 30 50 — multiple elements
-x[2:4]        # 20 30 40 — slice
+x[1]          # 10
+x[5]          # 50
+x[c(1,3,5)]   # 10 30 50
+x[2:4]        # 20 30 40
 x[-1]         # 20 30 40 50 — drop first element
-x[-c(1,5)]    # 20 30 40 — drop first and last
+x[-c(1,5)]    # 20 30 40
 ```
 
 **Logical indexing** — select elements where condition is TRUE:
@@ -75,23 +97,25 @@ x[x %% 2 == 0]      # 4 2 6
 x[x > mean(x)]      # 4 5 9 6
 ```
 
+This replaces most filtering loops. Compare:
+
+```r
+# Loop way (slow, verbose)
+result <- c()
+for (v in x) {
+  if (v > mean(x)) result <- c(result, v)
+}
+
+# Vector way (fast, direct)
+result <- x[x > mean(x)]
+```
+
 **Named indexing**:
 
 ```r
 scores <- c(Alice = 92, Bob = 78, Carol = 95, Dave = 84)
 scores["Alice"]          # 92
 scores[c("Bob","Carol")] # Bob 78, Carol 95
-```
-
-**Modifying elements**:
-
-```r
-x <- c(10, 20, 30, 40, 50)
-x[3] <- 99
-x                  # 10 20 99 40 50
-
-x[x < 30] <- 0
-x                  # 0 0 99 40 50
 ```
 
 ---
@@ -126,7 +150,7 @@ x <- c(1, 2, 3, 4, 6)
 x + c(10, 100)   # 11 102 13 104 16 — recycled: 10,100,10,100,10
 ```
 
-Recycling is powerful but can cause silent bugs. R warns when lengths aren't multiples of each other.
+Recycling is powerful but can cause silent bugs. R warns when lengths aren't multiples.
 
 ---
 
@@ -139,15 +163,10 @@ length(x)         # 10
 sum(x)            # 39
 prod(x)           # product of all elements
 cumsum(x)         # running sum
-cumprod(x)        # running product
-cummax(x)         # running maximum
-cummin(x)         # running minimum
 diff(x)           # differences: x[i+1] - x[i]
 
 sort(x)           # sort ascending
-sort(x, decreasing = TRUE)  # sort descending
 order(x)          # indices that would sort x
-rank(x)           # rank of each element
 rev(x)            # reverse
 
 which(x > 4)      # indices where condition is TRUE
@@ -156,6 +175,52 @@ which.max(x)      # index of maximum
 
 any(x > 8)        # TRUE if any element satisfies condition
 all(x > 0)        # TRUE if all elements satisfy condition
+```
+
+---
+
+## Replacing the Loop-Based Stats
+
+In Chapter 4 we built `compute_mean`, `compute_sd`, etc. with loops. Now replace them:
+
+```r
+# Chapter 4: loop-based (educational but slow)
+compute_mean <- function(x) {
+  total <- 0
+  for (v in x) total <- total + v
+  total / length(x)
+}
+
+# Chapter 5: vectorized (R's way)
+compute_mean <- function(x, na.rm = FALSE) {
+  if (na.rm) x <- x[!is.na(x)]
+  sum(x) / length(x)
+}
+```
+
+The loop version is fine for learning. The vectorized version is what you'd actually write.
+
+`na.rm = FALSE` is a default argument: by default, NAs are not removed. Pass `na.rm = TRUE` to ignore them. This matches R's built-in `mean()` interface.
+
+Now update `describe()`:
+
+```r
+describe <- function(x, name = "column", na.rm = TRUE) {
+  if (na.rm) x <- x[!is.na(x)]
+  n_total <- length(x) + sum(is.na(x))  # count before removal
+  n_valid <- length(x)
+  n_na    <- n_total - n_valid
+  
+  cat(sprintf("  %s:\n", name))
+  cat(sprintf("    n = %d", n_valid))
+  if (n_na > 0) cat(sprintf(" (%d NAs omitted)", n_na))
+  cat("\n")
+  cat(sprintf("    mean   = %.4f\n", mean(x)))
+  cat(sprintf("    sd     = %.4f\n", sd(x)))
+  cat(sprintf("    median = %.4f\n", median(x)))
+  cat(sprintf("    min    = %.4f\n", min(x)))
+  cat(sprintf("    max    = %.4f\n", max(x)))
+}
 ```
 
 ---
@@ -169,7 +234,6 @@ m <- matrix(1:12, nrow = 3, ncol = 4)
 m
 ```
 
-Output:
 ```
      [,1] [,2] [,3] [,4]
 [1,]    1    4    7   10
@@ -177,125 +241,94 @@ Output:
 [3,]    3    6    9   12
 ```
 
-Note: R fills by column (column-major order). Use `byrow = TRUE` to fill by row:
+R fills by column (column-major order). Use `byrow = TRUE` to fill by row.
 
-```r
-m <- matrix(1:12, nrow = 3, byrow = TRUE)
-```
-
-**Indexing a matrix**:
+**Indexing**:
 
 ```r
 m[2, 3]     # row 2, column 3
 m[1, ]      # entire row 1
 m[, 2]      # entire column 2
-m[1:2, 3:4] # submatrix
 ```
 
-**Matrix operations**:
+**Fast row/column operations**:
 
 ```r
-A <- matrix(c(1,2,3,4), nrow = 2)
-B <- matrix(c(5,6,7,8), nrow = 2)
-
-A + B       # element-wise addition
-A * B       # element-wise multiplication
-A %*% B     # matrix multiplication
-t(A)        # transpose
-det(A)      # determinant
-solve(A)    # matrix inverse
+rowSums(m)    # faster than apply(m, 1, sum)
+colMeans(m)   # faster than apply(m, 2, mean)
 ```
 
 ---
 
-## Program: Grade Analyzer
+## Grade Analyzer
 
 ```r
 # grades.R
-# Analyze student grades
+students <- c("Alice","Bob","Carol","Dave","Eve","Frank","Grace","Henry","Iris","Jack")
 
-# Student data
-students <- c("Alice", "Bob", "Carol", "Dave", "Eve",
-              "Frank", "Grace", "Henry", "Iris", "Jack")
-
-# Test scores (4 tests per student)
 scores <- matrix(c(
-  85, 92, 78, 88,   # Alice
-  72, 68, 75, 80,   # Bob
-  95, 98, 92, 96,   # Carol
-  60, 55, 62, 58,   # Dave
-  88, 85, 90, 87,   # Eve
-  78, 82, 79, 84,   # Frank
-  93, 91, 95, 89,   # Grace
-  65, 70, 68, 72,   # Henry
-  82, 87, 84, 90,   # Iris
-  75, 79, 77, 81    # Jack
+  85, 92, 78, 88,
+  72, 68, 75, 80,
+  95, 98, 92, 96,
+  60, 55, 62, 58,
+  88, 85, 90, 87,
+  78, 82, 79, 84,
+  93, 91, 95, 89,
+  65, 70, 68, 72,
+  82, 87, 84, 90,
+  75, 79, 77, 81
 ), nrow = 10, byrow = TRUE,
 dimnames = list(students, paste("Test", 1:4)))
 
-# Calculate averages
-avg_by_student <- rowMeans(scores)
-avg_by_test    <- colMeans(scores)
+avg <- rowMeans(scores)
+letter_grade <- function(s) ifelse(s >= 90, "A", ifelse(s >= 80, "B",
+                              ifelse(s >= 70, "C", ifelse(s >= 60, "D", "F"))))
+grades <- letter_grade(avg)
 
-# Letter grades
-letter_grade <- function(score) {
-  ifelse(score >= 90, "A",
-  ifelse(score >= 80, "B",
-  ifelse(score >= 70, "C",
-  ifelse(score >= 60, "D", "F"))))
-}
-
-grades <- letter_grade(avg_by_student)
-
-# Print report
-cat("=== Grade Report ===\n\n")
 cat(sprintf("%-10s  %5s  %5s  %5s  %5s  %6s  %s\n",
             "Student", "T1", "T2", "T3", "T4", "Avg", "Grade"))
-cat(strrep("-", 50), "\n")
-
+cat(strrep("-", 48), "\n")
 for (i in seq_along(students)) {
   cat(sprintf("%-10s  %5.1f  %5.1f  %5.1f  %5.1f  %6.2f  %s\n",
-              students[i],
-              scores[i, 1], scores[i, 2],
-              scores[i, 3], scores[i, 4],
-              avg_by_student[i], grades[i]))
+              students[i], scores[i,1], scores[i,2],
+              scores[i,3], scores[i,4], avg[i], grades[i]))
+}
+cat(sprintf("\nHighest: %s (%.2f)\n", students[which.max(avg)], max(avg)))
+cat(sprintf("Lowest:  %s (%.2f)\n", students[which.min(avg)], min(avg)))
+```
+
+Every computation here is vectorized: `rowMeans`, `ifelse`, `which.max`. No explicit loop needed for the calculations — only for the formatted output.
+
+---
+
+## analyze.R: Chapter 5 Version
+
+What changed: `describe()` and `compute_stats()` now use vectorized operations. NA handling added.
+
+```r
+# analyze.R — Chapter 5 (key changes shown)
+
+# --- Statistics functions (now vectorized) ---
+
+compute_stats <- function(x, stats = c("mean","sd","median","min","max"),
+                          na.rm = TRUE) {
+  if (na.rm) x <- x[!is.na(x)]
+  result <- list()
+  if ("mean"   %in% stats) result$mean   <- mean(x)
+  if ("sd"     %in% stats) result$sd     <- sd(x)
+  if ("median" %in% stats) result$median <- median(x)
+  if ("min"    %in% stats) result$min    <- min(x)
+  if ("max"    %in% stats) result$max    <- max(x)
+  if ("n"      %in% stats) result$n      <- length(x)
+  result
 }
 
-cat(strrep("-", 50), "\n")
-cat(sprintf("%-10s  %5.1f  %5.1f  %5.1f  %5.1f  %6.2f\n",
-            "Average",
-            avg_by_test[1], avg_by_test[2],
-            avg_by_test[3], avg_by_test[4],
-            mean(avg_by_student)))
-
-# Statistics
-cat("\n=== Class Statistics ===\n")
-cat(sprintf("Highest average: %s (%.2f)\n",
-            students[which.max(avg_by_student)],
-            max(avg_by_student)))
-cat(sprintf("Lowest average:  %s (%.2f)\n",
-            students[which.min(avg_by_student)],
-            min(avg_by_student)))
-cat("\nGrade distribution:\n")
-print(table(grades))
-```
-
-Output:
-```
-=== Grade Report ===
-
-Student      T1     T2     T3     T4     Avg  Grade
---------------------------------------------------
-Alice        85.0   92.0   78.0   88.0   85.75  B
-Bob          72.0   68.0   75.0   80.0   73.75  C
-Carol        95.0   98.0   92.0   96.0   95.25  A
-Dave         60.0   55.0   62.0   58.0   58.75  F
-Eve          88.0   85.0   90.0   87.0   87.50  B
-Frank        78.0   82.0   79.0   84.0   80.75  B
-Grace        93.0   91.0   95.0   89.0   92.00  A
-Henry        65.0   70.0   68.0   72.0   68.75  D
-Iris         82.0   87.0   84.0   90.0   85.75  B
-Jack         75.0   79.0   77.0   81.0   78.00  C
+print_stats <- function(stats_list, name) {
+  cat(sprintf("  %s:\n", name))
+  for (nm in names(stats_list)) {
+    cat(sprintf("    %-8s = %.4f\n", nm, stats_list[[nm]]))
+  }
+}
 ```
 
 ---
@@ -308,28 +341,46 @@ Given `x <- c(4, 7, 2, 9, 1, 5, 8, 3, 6)`:
 - Extract elements greater than 5
 - Extract every other element (indices 1, 3, 5, ...)
 - Replace all elements less than 3 with 0
-- Find the 3rd largest element (without sorting the whole vector — use `sort` and index)
-- Compute the running mean (cumulative mean up to each point)
+- Find the 3rd largest element (use `sort`, index from the end)
+- Compute the running mean: `cumsum(x) / seq_along(x)`
 
 **2. Matrix operations**
 
-Create a 5×5 matrix filled with the numbers 1–25, filled by row. Then:
+Create a 5×5 matrix filled with 1–25, by row. Then:
 - Extract the diagonal (use `diag()`)
-- Compute the sum of each row (use `rowSums()`)
+- Compute row sums with `rowSums()`
 - Extract the 3×3 submatrix from rows 2–4, columns 2–4
 - Replace all values greater than 15 with NA
 
-**3. Grade analysis extension**
+**3. Moving average**
 
-Extend the grade analyzer to also:
-- Weight the tests: Test 1 = 20%, Test 2 = 20%, Test 3 = 25%, Test 4 = 35%
-- Find students who improved (Test 4 > Test 1)
-- Compute the correlation between Test 1 and Test 4 scores
+Write `moving_avg(x, k)` that computes the k-period moving average. For `x <- c(1, 2, 3, 4, 5, 6, 7)` and `k = 3`, the result should be `NA NA 2 3 4 5 6`. No loop needed — use `cumsum` and shifted indices.
 
-**4. Moving average**
+**4. Grade analysis extension**
 
-Write `moving_avg(x, k)` that computes the k-period moving average. For `x <- c(1, 2, 3, 4, 5, 6, 7)` and `k = 3`, the result should be `NA NA 2 3 4 5 6`.
+Extend the grade analyzer to:
+- Weight the tests: T1=20%, T2=20%, T3=25%, T4=35%
+- Find students who improved (T4 > T1)
+- Compute the correlation between T1 and T4: `cor(scores[,1], scores[,4])`
+
+**5. The growing program (do this one)**
+
+`analyze.R` currently gets passed column data as a hardcoded vector. Change `compute_stats()` to also handle character vectors — for strings, report: n (count), n_unique (unique values), top value (most common). Use `table()` and `which.max()`.
+
+```r
+compute_stats_char <- function(x, na.rm = TRUE) {
+  if (na.rm) x <- x[!is.na(x)]
+  freq <- table(x)
+  list(
+    n        = length(x),
+    n_unique = length(unique(x)),
+    top      = names(which.max(freq))
+  )
+}
+```
+
+In Chapter 6, this character-column handling gets extended with regex and string parsing.
 
 ---
 
-*Next: Chapter 6 — Strings: processing text in R*
+*Next: Chapter 6 — Strings: parse string columns, add regex filters*

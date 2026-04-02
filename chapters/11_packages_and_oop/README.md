@@ -1,44 +1,57 @@
 # Chapter 11: Packages and OOP
 
-*Installing and using packages. S3 classes. Building a mini data package.*
+*Installing and using packages. S3 classes. Wrapping analyze.R into a Dataset.*
+
+---
+
+## Where We Left Off
+
+`analyze.R` now has:
+- Multi-file input (`lapply` over files)
+- Config system (nested list)
+- Filtering, grouping, stats
+
+The main weakness: results are scattered. After running, you have `df`, `stats_results`, `config` — three separate objects you have to keep track of. When you call a follow-up function, you pass all three.
+
+Better: one object that holds data, config, and results together. That's what an S3 class gives us.
+
+```r
+ds <- Dataset("employees.csv", config)
+ds <- filter(ds, salary > 60000)
+ds <- compute(ds)
+print(ds)
+```
 
 ---
 
 ## Packages
 
-R's strength is its ecosystem. CRAN has 20,000+ packages. You need to know how to find, install, and use them.
+R's strength is its ecosystem. CRAN has 20,000+ packages.
 
 ```r
-# Install a package (done once)
+# Install once
 install.packages("ggplot2")
 install.packages(c("dplyr", "tidyr", "readr"))
 
-# Load a package (done every session)
+# Load every session
 library(ggplot2)
 library(dplyr)
 
-# Check if installed
+# Use without loading the whole package:
+dplyr::filter(df, age > 30)
+
+# Check if installed:
 "ggplot2" %in% installed.packages()[, "Package"]
-
-# See what's in a package
-help(package = "ggplot2")
-ls("package:ggplot2")
-```
-
-**Namespace access** — use a function from a package without loading the whole thing:
-
-```r
-dplyr::filter(df, age > 30)   # use filter() from dplyr
 ```
 
 ---
 
-## Essential Packages to Know
+## Essential Packages
 
 **Data manipulation:**
 - `dplyr` — `filter`, `select`, `mutate`, `group_by`, `summarise`
-- `tidyr` — `pivot_longer`, `pivot_wider`, `separate`, `unite`
-- `data.table` — fast data manipulation for large data
+- `tidyr` — `pivot_longer`, `pivot_wider`
+- `data.table` — fast for large data
 
 **Reading data:**
 - `readr` — fast CSV reading
@@ -47,85 +60,58 @@ dplyr::filter(df, age > 30)   # use filter() from dplyr
 
 **Visualization:**
 - `ggplot2` — the grammar of graphics
-- `plotly` — interactive plots
-
-**Statistics:**
-- `stats` (built-in) — regression, tests, distributions
-- `lme4` — mixed models
-- `survival` — survival analysis
 
 **Dates/Times:**
 - `lubridate` — painless date handling
+
+For now we stay in base R — the concepts apply to all packages.
 
 ---
 
 ## S3: R's Main OOP System
 
-R has several OOP systems. S3 is the most common — it's simple, flexible, and used throughout base R.
+R has several OOP systems. S3 is the most common — used throughout base R.
 
-S3 is based on **generic functions** and **methods**. A generic function like `print()` looks at the class of its argument and dispatches to the right method.
+S3 is based on **generic functions** and **methods**. A generic like `print()` looks at the class of its argument and dispatches to the right method.
 
 **Create an S3 class:**
 
 ```r
-# Constructor function
 new_dog <- function(name, breed, age) {
   structure(
     list(name = name, breed = breed, age = age),
     class = "Dog"
   )
 }
-
-# Or: add class to an existing list
-new_dog <- function(name, breed, age) {
-  obj <- list(name = name, breed = breed, age = age)
-  class(obj) <- "Dog"
-  obj
-}
 ```
 
-**Methods:** define `generic.ClassName`:
+**Methods** — define `generic.ClassName`:
 
 ```r
-# print method
 print.Dog <- function(x, ...) {
   cat(sprintf("Dog: %s (%s), age %d\n", x$name, x$breed, x$age))
   invisible(x)
 }
 
-# summary method
 summary.Dog <- function(object, ...) {
-  cat(sprintf("Name: %s\nBreed: %s\nAge: %d years (%d in dog years)\n",
-              object$name, object$breed, object$age, object$age * 7))
+  cat(sprintf("Name: %s\nBreed: %s\nAge: %d years\n",
+              object$name, object$breed, object$age))
 }
 
 # Custom generic
 speak <- function(x, ...) UseMethod("speak")
 speak.Dog <- function(x, ...) cat(x$name, "says: Woof!\n")
-speak.Cat <- function(x, ...) cat(x$name, "says: Meow!\n")
 speak.default <- function(x, ...) cat("...\n")
-
-# Arithmetic operator override
-"+.Dog" <- function(a, b) {
-  # "Adding" two dogs = new litter name idea
-  new_dog(paste(a$name, "&", b$name), 
-          paste(a$breed, "/", b$breed), 0)
-}
 ```
 
 **Use it:**
 
 ```r
-rex  <- new_dog("Rex",  "German Shepherd", 5)
-luna <- new_dog("Luna", "Labrador",         3)
-
-print(rex)       # calls print.Dog
-summary(rex)     # calls summary.Dog
-speak(rex)       # "Rex says: Woof!"
-
-is(rex, "Dog")   # TRUE
+rex <- new_dog("Rex", "German Shepherd", 5)
+print(rex)        # calls print.Dog
+speak(rex)        # calls speak.Dog
+class(rex)        # "Dog"
 inherits(rex, "Dog")  # TRUE
-class(rex)       # "Dog"
 ```
 
 ---
@@ -134,137 +120,220 @@ class(rex)       # "Dog"
 
 ```r
 new_guide_dog <- function(name, breed, age, owner) {
-  obj <- new_dog(name, breed, age)   # base constructor
+  obj <- new_dog(name, breed, age)
   obj$owner <- owner
   class(obj) <- c("GuideDog", "Dog")  # inherits from Dog
   obj
 }
 
-# Override only what's different
 print.GuideDog <- function(x, ...) {
-  NextMethod()   # calls print.Dog first
+  NextMethod()   # calls print.Dog
   cat(sprintf("  Guide dog for: %s\n", x$owner))
   invisible(x)
 }
 
-speak.GuideDog <- function(x, ...) {
-  cat(x$name, "says: Quiet woof. I'm working.\n")
-}
-
 buddy <- new_guide_dog("Buddy", "Golden Retriever", 4, "John")
-print(buddy)    # print.GuideDog → NextMethod() → print.Dog
-speak(buddy)    # speak.GuideDog
+print(buddy)   # print.GuideDog → NextMethod() → print.Dog
 ```
 
 ---
 
-## Program: A Mini Data Package
+## Building the Dataset Class
 
-Build a complete S3 class for a data analysis object:
+Now apply this to `analyze.R`. The `Dataset` class holds everything together:
 
 ```r
-# dataset_class.R
-# A Dataset S3 class with methods
-
-# ---- Constructor ----
-new_dataset <- function(data, name = "Unnamed", description = "") {
+# Constructor
+new_Dataset <- function(data, name = "unnamed", config = default_config) {
   if (!is.data.frame(data)) stop("data must be a data.frame")
   
   structure(
     list(
       data        = data,
       name        = name,
-      description = description,
+      config      = config,
+      results     = list(),    # stats go here after compute()
       created     = Sys.time(),
-      n_rows      = nrow(data),
-      n_cols      = ncol(data)
+      filtered    = FALSE,
+      n_original  = nrow(data)
     ),
     class = "Dataset"
   )
 }
+```
 
-# ---- print ----
+Now the methods:
+
+```r
+# print.Dataset: concise one-liner
 print.Dataset <- function(x, ...) {
-  cat(sprintf("Dataset: %s\n", x$name))
-  cat(sprintf("  %d rows × %d columns\n", x$n_rows, x$n_cols))
-  if (nchar(x$description) > 0)
-    cat(sprintf("  %s\n", x$description))
-  cat(sprintf("  Created: %s\n", format(x$created, "%Y-%m-%d %H:%M")))
+  cat(sprintf("Dataset '%s': %d rows × %d columns",
+              x$name, nrow(x$data), ncol(x$data)))
+  if (x$filtered)
+    cat(sprintf(" (filtered from %d)", x$n_original))
+  cat("\n")
   invisible(x)
 }
 
-# ---- summary ----
+# summary.Dataset: full breakdown
 summary.Dataset <- function(object, ...) {
-  cat(sprintf("=== %s ===\n", object$name))
-  cat(sprintf("Dimensions: %d × %d\n\n", object$n_rows, object$n_cols))
+  cat(sprintf("=== Dataset: %s ===\n", object$name))
+  cat(sprintf("Dimensions: %d × %d\n", nrow(object$data), ncol(object$data)))
+  cat(sprintf("Created:    %s\n\n", format(object$created, "%Y-%m-%d %H:%M")))
   
   df <- object$data
   for (col in names(df)) {
     x <- df[[col]]
     if (is.numeric(x)) {
-      cat(sprintf("%-15s [numeric] : min=%.2f, mean=%.2f, max=%.2f, NAs=%d\n",
+      cat(sprintf("  %-15s [numeric]   min=%.2f  mean=%.2f  max=%.2f  NAs=%d\n",
                   col, min(x,na.rm=T), mean(x,na.rm=T), max(x,na.rm=T), sum(is.na(x))))
-    } else if (is.character(x) || is.factor(x)) {
-      n_unique <- length(unique(x))
-      cat(sprintf("%-15s [character]: %d unique values, NAs=%d\n",
-                  col, n_unique, sum(is.na(x))))
-    } else if (is.logical(x)) {
-      cat(sprintf("%-15s [logical] : TRUE=%d (%.1f%%), FALSE=%d\n",
-                  col, sum(x,na.rm=T), 100*mean(x,na.rm=T), sum(!x,na.rm=T)))
+    } else {
+      cat(sprintf("  %-15s [character] %d unique  NAs=%d\n",
+                  col, length(unique(x[!is.na(x)])), sum(is.na(x))))
     }
   }
   invisible(object)
 }
+```
 
-# ---- Subsetting ([ operator) ----
-"[.Dataset" <- function(x, rows, cols) {
-  sub_data <- x$data[rows, cols, drop = FALSE]
-  new_dataset(sub_data, 
-              name        = paste(x$name, "[subset]"),
-              description = x$description)
+Generic functions for Dataset operations:
+
+```r
+# filter generic
+filter_data <- function(x, ...) UseMethod("filter_data")
+filter_data.Dataset <- function(x, filter_str, ...) {
+  parts <- regmatches(filter_str,
+             regexec("^(\\w+)(==|!=|>=|<=|>|<|!~|~)(.+)$", filter_str))[[1]]
+  if (length(parts) != 4) stop(paste("Invalid filter:", filter_str))
+  
+  col_name  <- parts[2]
+  op        <- parts[3]
+  threshold <- parts[4]
+  
+  if (!col_name %in% names(x$data)) stop(paste("Column not found:", col_name))
+  
+  keep <- apply_filter(x$data[[col_name]], op, threshold)
+  keep[is.na(keep)] <- FALSE
+  
+  x$data     <- x$data[keep, ]
+  x$filtered <- TRUE
+  x$name     <- paste0(x$name, " [filtered]")
+  x
 }
 
-# ---- Filter method ----
-filter_dataset <- function(x, ...) UseMethod("filter_dataset")
-filter_dataset.Dataset <- function(x, condition) {
-  sub_data <- x$data[eval(substitute(condition), x$data), ]
-  new_dataset(sub_data, 
-              name = paste(x$name, "[filtered]"),
-              description = x$description)
+# compute generic
+compute <- function(x, ...) UseMethod("compute")
+compute.Dataset <- function(x, ...) {
+  cfg     <- x$config
+  stats   <- cfg$analysis$stats
+  group   <- cfg$group
+  na.rm   <- cfg$analysis$na_rm
+  
+  df      <- x$data
+  num_cols <- names(df)[sapply(df, is.numeric)]
+  
+  if (!is.null(group) && group %in% names(df)) {
+    x$results <- lapply(num_cols, function(col) {
+      tapply(df[[col]], df[[group]], function(v) {
+        compute_stats(v[!is.na(v)], stats)
+      })
+    })
+    names(x$results) <- num_cols
+  } else {
+    x$results <- lapply(num_cols, function(col) {
+      v <- df[[col]]
+      compute_stats(v[!is.na(v)], stats)
+    })
+    names(x$results) <- num_cols
+  }
+  
+  x
 }
+```
 
-# ---- Save / load ----
-save_dataset <- function(x, ...) UseMethod("save_dataset")
-save_dataset.Dataset <- function(x, path, ...) {
-  saveRDS(x, path)
-  cat(sprintf("Saved %s to %s\n", x$name, path))
+Report generation as a method:
+
+```r
+report <- function(x, ...) UseMethod("report")
+report.Dataset <- function(x, output_file = NULL, ...) {
+  lines <- c(
+    sprintf("=== Analysis Report: %s ===", x$name),
+    sprintf("Generated: %s", format(Sys.time(), "%Y-%m-%d %H:%M:%S")),
+    sprintf("Rows: %d | Columns: %d", nrow(x$data), ncol(x$data)),
+    ""
+  )
+  
+  for (col in names(x$results)) {
+    res <- x$results[[col]]
+    lines <- c(lines, sprintf("--- %s ---", col))
+    
+    if (is.list(res) && !is.null(names(res[[1]]))) {
+      # Grouped results
+      for (grp in names(res)) {
+        stat_str <- paste(names(res[[grp]]),
+                         round(unlist(res[[grp]]), 4), sep="=", collapse="  ")
+        lines <- c(lines, sprintf("  %-20s : %s", grp, stat_str))
+      }
+    } else {
+      for (nm in names(res)) {
+        lines <- c(lines, sprintf("  %-8s = %.4f", nm, res[[nm]]))
+      }
+    }
+    lines <- c(lines, "")
+  }
+  
+  cat(paste(lines, collapse="\n"), "\n")
+  
+  if (!is.null(output_file)) {
+    writeLines(lines, output_file)
+    cat(sprintf("Report written to %s\n", output_file))
+  }
+  
   invisible(x)
 }
+```
 
-load_dataset <- function(path) {
-  obj <- readRDS(path)
-  if (!inherits(obj, "Dataset")) stop("File does not contain a Dataset object")
-  cat(sprintf("Loaded: %s\n", obj$name))
-  obj
+---
+
+## analyze.R: Chapter 11 Version
+
+What changed: everything goes through the `Dataset` class. The main program is now just:
+
+```r
+# analyze.R — Chapter 11
+# Usage: Rscript analyze.R <file.csv> [options]
+
+# ... (source helper functions: apply_filter, compute_stats, default_config, etc.)
+
+args     <- commandArgs(trailingOnly = TRUE)
+filename <- args[!grepl("^--", args)][1]
+
+if (is.na(filename) || !file.exists(filename)) {
+  cat("Usage: Rscript analyze.R <file.csv> [--filter=] [--group=] [--stat=] [--output=]\n")
+  quit(status = 1)
 }
 
-# ---- Test it ----
-set.seed(42)
-df <- data.frame(
-  age    = sample(20:65, 100, replace = TRUE),
-  salary = round(rnorm(100, 60000, 15000), -3),
-  dept   = sample(c("Eng","Sales","HR","Finance"), 100, replace = TRUE),
-  active = sample(c(TRUE,FALSE), 100, prob=c(.9,.1), replace=TRUE)
-)
+config <- args_to_config(args)
+validate_config(config)
 
-ds <- new_dataset(df, "HR Data", "Employee records Q1 2026")
-print(ds)
-summary(ds)
+df  <- read.csv(filename, stringsAsFactors = FALSE,
+                sep = config$input$sep, na.strings = config$input$na_strings)
+ds  <- new_Dataset(df, basename(filename), config)
 
-# Subset
-ds_eng <- filter_dataset(ds, dept == "Eng")
-print(ds_eng)
+# Apply filter if specified
+if (!is.null(config$filter)) {
+  ds <- filter_data(ds, config$filter)
+}
+
+# Compute stats
+ds <- compute(ds)
+
+# Report
+output_file <- config$output$file
+report(ds, output_file = output_file)
 ```
+
+Clean. The logic lives in the class methods. The main program is just orchestration.
 
 ---
 
@@ -273,27 +342,34 @@ print(ds_eng)
 **1. Extend the Dog class**
 
 Add:
-- A `feed(x)` generic that increases age health
-- A `compare(a, b)` method that compares two dogs by age
-- A `format.Dog` method that lets `paste(rex)` work
+- A `feed(x)` generic that updates health
+- A `compare(a, b)` method comparing two dogs by age
+- A `format.Dog` method so `paste(rex)` produces a readable string
 
-**2. Matrix class**
+**2. S3 arithmetic**
 
-Create a `Matrix2x2` class for 2×2 matrices with:
-- `print`: shows the matrix nicely
-- `det`: determinant
-- `inv`: inverse
-- `+`, `*` (`%.%`): addition and multiplication
-- `solve.Matrix2x2`: solve Ax = b
+Create a `Money` class with currency and amount:
+```r
+m1 <- new_money(100, "USD")
+m2 <- new_money(50, "USD")
+m1 + m2   # Money: 150 USD
+```
+Implement `+.Money` and `print.Money`. Add currency checking: adding USD to EUR should error.
 
 **3. Write a package**
 
 Create a minimal R package:
-```bash
-# In RStudio: File → New Project → New Directory → R Package
-```
-Add one or two functions from this course, document them with `#'` roxygen comments, and `Build → Install and Restart`.
+- `File → New Project → New Directory → R Package` in RStudio
+- Add `compute_stats()` and `describe()` from this course
+- Document with `#'` roxygen comments
+- `Build → Install and Restart`
+
+**4. The growing program (do this one)**
+
+Add `load_Dataset` and `save_Dataset` methods. `save_Dataset(ds, "analysis.rds")` saves the entire object. `load_Dataset("analysis.rds")` restores it.
+
+This is the final piece before Chapter 12: the tool can save its state, so you can run analysis once and re-use the results without re-reading and re-computing the data.
 
 ---
 
-*Next: Chapter 12 — Real Tools: a complete analysis report*
+*Next: Chapter 12 — The finished tool: 150 lines, does everything*

@@ -1,49 +1,59 @@
 # R Programming
 
-*Learn R by writing programs. Every chapter builds something that runs.*
+*Learn R by writing programs that build on each other.*
 
 ---
 
-This course teaches R the way Kernighan taught C — not by cataloguing features, but by writing programs. You will read code, run it, modify it, break it, and fix it. By the end, you'll write R that works.
+This course teaches R the way Kernighan taught C — not by cataloguing features, but by writing programs. Every chapter grows a single tool. By the end, you have something real.
 
-The environment is RStudio. Every chapter assumes you have a script open and are running code as you read.
+The environment is RStudio for interactive work, plus the command line for running scripts.
 
-## The Approach
+## The Red Thread: analyze.R
 
-Each chapter:
-- Introduces one concept through a working program
-- Explains exactly what the code does and why
-- Builds on it with variations and extensions
-- Ends with exercises that require you to produce something
+The book has one project: `analyze.R`, a command-line data analysis tool. Each chapter adds one capability to it.
 
-No slides. No memorization. Just programs.
+By Chapter 12 it does this:
+
+```
+Rscript analyze.R data.csv --group dept --stat mean,sd --filter "salary>50000" --output report.txt
+```
+
+150 lines. Reads any CSV, computes statistics, filters rows, groups data, writes a report.
+
+## How Each Chapter Works
+
+1. **Start with the problem**: "Here's what we have so far. It can't do X yet. Let's fix that."
+2. **Show the minimal code first** — 5–15 lines — then build up.
+3. **Show what changed**: the diff from last chapter.
+4. **Exercises connect forward**: the last exercise in each chapter produces something needed in the next.
 
 ## Chapters
 
-| # | Title | You'll Build |
-|---|-------|-------------|
-| 1 | Getting Started | A calculator and word counter |
-| 2 | Types and Expressions | A unit converter |
-| 3 | Control Flow | A number guessing game |
-| 4 | Functions | A statistics toolkit |
-| 5 | Vectors and Arrays | A grade analyzer |
-| 6 | Strings | A text processing tool |
-| 7 | I/O and Files | A CSV processor |
-| 8 | Data Frames | An exploratory analysis pipeline |
-| 9 | Lists and Environments | A config system |
-| 10 | The Apply Family | A batch data cleaner |
-| 11 | Packages and OOP | A mini data package |
-| 12 | Real Tools | A complete analysis report |
+| # | Title | analyze.R gains |
+|---|-------|----------------|
+| 1 | Getting Started | Reads filename, prints "Hello" |
+| 2 | Types and Expressions | Parses types, converts units |
+| 3 | Control Flow | Parses filter expressions |
+| 4 | Functions | Computes mean, sd, median |
+| 5 | Vectors and Arrays | Vectorized ops, NA handling |
+| 6 | Strings | Regex filter operators `~`, `!~` |
+| 7 | I/O and Files | Reads real CSVs, writes reports |
+| 8 | Data Frames | Groups with `--group` |
+| 9 | Lists and Environments | Config system |
+| 10 | The Apply Family | Multiple files, `lapply` |
+| 11 | Packages and OOP | Dataset S3 class |
+| 12 | Real Tools | Final tool, 150 lines |
+| 13 | Debugging | Break it 3 ways, fix it |
 
 ## Setup
 
 1. Install R from [r-project.org](https://www.r-project.org)
 2. Install RStudio from [posit.co](https://posit.co/downloads/)
-3. Open RStudio. You'll work in the **Script editor** (top-left) and run code in the **Console** (bottom-left).
+3. Open RStudio. Work in the **Script editor** (top-left); run code in the **Console** (bottom-left).
 
 **Run a line**: `Ctrl+Enter` (Windows/Linux) or `Cmd+Enter` (Mac)  
-**Run a selection**: select code, then `Ctrl+Enter`  
-**Run the whole script**: `Ctrl+Shift+Enter`
+**Run the whole script**: `Ctrl+Shift+Enter`  
+**Run from terminal**: `Rscript script.R`
 
 ## RStudio Layout
 

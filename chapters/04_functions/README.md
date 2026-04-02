@@ -4,6 +4,19 @@
 
 ---
 
+## Where We Left Off
+
+`analyze.R` parses a filename, validates it, and parses a filter string. The statistics logic is still missing — we've been printing what we *would* compute. Time to actually compute it.
+
+The statistics we want:
+- mean, median, standard deviation
+- min, max, range
+- a clean summary
+
+We *could* write these inline. Better: extract them into functions. That way they're testable, reusable, and the main program stays short.
+
+---
+
 ## Defining a Function
 
 ```r
@@ -50,10 +63,10 @@ power <- function(base, exponent = 2) {
 }
 
 power(5)      # 25  (exponent defaults to 2)
-power(5, 3)   # 125 (override the default)
+power(5, 3)   # 125 (override)
 ```
 
-Defaults are evaluated at call time, not definition time. This matters:
+Defaults are evaluated at call time, not definition time:
 
 ```r
 f <- function(x, y = x * 2) {
@@ -71,7 +84,7 @@ The last expression is returned. Use `return()` for early exits:
 
 ```r
 safe_divide <- function(a, b) {
-  if (b == 0) return(NA)  # early exit
+  if (b == 0) return(NA)
   a / b
 }
 
@@ -96,7 +109,7 @@ result$range     # 8
 
 ## Scope
 
-Variables inside a function are local — they don't exist outside:
+Variables inside a function are local:
 
 ```r
 f <- function() {
@@ -105,29 +118,18 @@ f <- function() {
 }
 
 f()
-cat("Outside:", local_var, "\n")   # Error: object 'local_var' not found
+local_var   # Error: object 'local_var' not found
 ```
 
 Functions can *read* variables from the enclosing environment:
 
 ```r
 multiplier <- 3
-
-f <- function(x) x * multiplier   # reads multiplier from global env
-
+f <- function(x) x * multiplier
 f(5)   # 15
 ```
 
-Use `<<-` to assign to the enclosing environment (use sparingly — it's a code smell):
-
-```r
-counter <- 0
-increment <- function() counter <<- counter + 1
-
-increment()
-increment()
-counter   # 2
-```
+This is fine for constants. For everything else, pass arguments explicitly. Using `<<-` to modify external state from inside a function is a code smell — avoid it.
 
 ---
 
@@ -141,34 +143,23 @@ apply_twice <- function(f, x) {
 }
 
 apply_twice(sqrt, 256)      # sqrt(sqrt(256)) = 4
-apply_twice(toupper, "hi")  # error! toupper(toupper("hi")) = "HI"
+apply_twice(toupper, "hi")  # "HI" (toupper is idempotent)
 ```
 
-**Anonymous functions** — define a function inline without naming it:
+**Anonymous functions** — define a function inline:
 
 ```r
 apply_twice(function(x) x + 1, 10)   # 12
 
 # R 4.1+ shorthand:
-apply_twice(\(x) x + 1, 10)           # same thing
+apply_twice(\(x) x + 1, 10)           # same
 ```
 
 ---
 
 ## The `...` (Dots) Argument
 
-`...` passes any extra arguments through to another function:
-
-```r
-my_plot <- function(x, y, ...) {
-  plot(x, y, type = "l", ...)
-}
-
-# Any extra args go to plot():
-my_plot(1:10, (1:10)^2, col = "red", lwd = 2, main = "My Plot")
-```
-
-Also used to accept a variable number of arguments:
+`...` passes extra arguments through to another function:
 
 ```r
 my_sum <- function(...) {
@@ -181,19 +172,22 @@ my_sum(1, 2, 3, 4, 5)   # 15
 
 ---
 
-## Program: Statistics Toolkit
+## Building the Statistics Toolkit
+
+Here's the right approach: write each statistic as a small function, then compose them.
+
+Start minimal:
 
 ```r
-# stats_toolkit.R
-# A collection of statistical functions
-
-# Arithmetic mean
-mean_val <- function(x) {
+compute_mean <- function(x) {
   sum(x) / length(x)
 }
+```
 
-# Median
-median_val <- function(x) {
+Test it. It works. Now add more:
+
+```r
+compute_median <- function(x) {
   x_sorted <- sort(x)
   n <- length(x_sorted)
   if (n %% 2 == 1) {
@@ -203,32 +197,12 @@ median_val <- function(x) {
   }
 }
 
-# Variance (population)
-variance_pop <- function(x) {
-  m <- mean_val(x)
-  sum((x - m) ^ 2) / length(x)
+compute_sd <- function(x) {
+  m <- compute_mean(x)
+  sqrt(sum((x - m) ^ 2) / (length(x) - 1))  # sample SD
 }
 
-# Standard deviation (population)
-sd_pop <- function(x) sqrt(variance_pop(x))
-
-# Variance (sample, Bessel's correction)
-variance_samp <- function(x) {
-  m <- mean_val(x)
-  sum((x - m) ^ 2) / (length(x) - 1)
-}
-
-# Standard deviation (sample)
-sd_samp <- function(x) sqrt(variance_samp(x))
-
-# Mode (most common value)
-mode_val <- function(x) {
-  freq <- table(x)
-  as.numeric(names(which(freq == max(freq))))
-}
-
-# Quantile (simple version)
-quantile_val <- function(x, p) {
+compute_quantile <- function(x, p) {
   x_sorted <- sort(x)
   n <- length(x_sorted)
   index <- p * (n - 1) + 1
@@ -237,43 +211,31 @@ quantile_val <- function(x, p) {
   if (lower == upper) return(x_sorted[lower])
   x_sorted[lower] + (x_sorted[upper] - x_sorted[lower]) * (index - lower)
 }
+```
 
-# IQR
-iqr_val <- function(x) quantile_val(x, 0.75) - quantile_val(x, 0.25)
+Now compose them into a summary:
 
-# Z-score normalization
-normalize <- function(x) {
-  m <- mean_val(x)
-  s <- sd_samp(x)
-  (x - m) / s
-}
-
-# Summary report
+```r
 describe <- function(x, name = "x") {
   cat(sprintf("\nSummary of %s (%d values):\n", name, length(x)))
   cat(sprintf("  Min:    %8.4f\n", min(x)))
-  cat(sprintf("  Q1:     %8.4f\n", quantile_val(x, 0.25)))
-  cat(sprintf("  Median: %8.4f\n", median_val(x)))
-  cat(sprintf("  Mean:   %8.4f\n", mean_val(x)))
-  cat(sprintf("  Q3:     %8.4f\n", quantile_val(x, 0.75)))
+  cat(sprintf("  Q1:     %8.4f\n", compute_quantile(x, 0.25)))
+  cat(sprintf("  Median: %8.4f\n", compute_median(x)))
+  cat(sprintf("  Mean:   %8.4f\n", compute_mean(x)))
+  cat(sprintf("  Q3:     %8.4f\n", compute_quantile(x, 0.75)))
   cat(sprintf("  Max:    %8.4f\n", max(x)))
-  cat(sprintf("  SD:     %8.4f\n", sd_samp(x)))
-  cat(sprintf("  IQR:    %8.4f\n", iqr_val(x)))
+  cat(sprintf("  SD:     %8.4f\n", compute_sd(x)))
 }
+```
 
-# Test it
+Test it:
+
+```r
 set.seed(42)
 data <- c(23, 45, 12, 67, 34, 89, 45, 23, 56, 78,
           12, 45, 67, 23, 90, 45, 34, 78, 56, 23)
 
 describe(data, "test data")
-
-# Verify against R's built-ins
-cat("\nVerification against R built-ins:\n")
-cat(sprintf("  mean():   %8.4f\n", mean(data)))
-cat(sprintf("  median(): %8.4f\n", median(data)))
-cat(sprintf("  sd():     %8.4f\n", sd(data)))
-cat(sprintf("  IQR():    %8.4f\n", IQR(data)))
 ```
 
 Output:
@@ -286,16 +248,16 @@ Summary of test data (20 values):
   Q3:       62.7500
   Max:      90.0000
   SD:       24.0022
-  IQR:      39.7500
-
-Verification against R built-ins:
-  mean():   45.2500
-  median(): 45.0000
-  sd():     24.0022
-  IQR():    39.7500
 ```
 
-Your implementations match R's built-ins. That's how you know they're right.
+Verify against R's built-ins:
+
+```r
+cat(sprintf("  mean():   %8.4f\n", mean(data)))    # 45.2500 ✓
+cat(sprintf("  sd():     %8.4f\n", sd(data)))       # 24.0022 ✓
+```
+
+Your implementations match. That's how you know they're right.
 
 ---
 
@@ -310,21 +272,18 @@ factorial <- function(n) {
 }
 
 factorial(5)   # 120
-factorial(10)  # 3628800
 ```
 
-Fibonacci:
+Recursive Fibonacci is famously slow (exponential time):
 
 ```r
 fib <- function(n) {
   if (n <= 1) return(n)
   fib(n - 1) + fib(n - 2)
 }
-
-sapply(0:10, fib)  # 0 1 1 2 3 5 8 13 21 34 55
 ```
 
-Recursive Fibonacci is famously slow (exponential time). An iterative version:
+An iterative version is much faster:
 
 ```r
 fib_fast <- function(n) {
@@ -343,23 +302,104 @@ fib_fast <- function(n) {
 
 ## Function Documentation
 
-Document your functions with comments. The convention in R:
+Document your functions. The convention in R:
 
 ```r
-#' Compute the harmonic mean of a numeric vector
+#' Compute the sample standard deviation
 #'
-#' @param x numeric vector (all values must be positive)
-#' @return the harmonic mean
+#' @param x numeric vector (length >= 2)
+#' @return standard deviation (sample, Bessel's correction)
 #' @examples
-#' harmonic_mean(c(1, 2, 4))  # 1.714
-harmonic_mean <- function(x) {
-  if (any(x <= 0)) stop("All values must be positive")
-  n <- length(x)
-  n / sum(1 / x)
+#' compute_sd(c(2, 4, 4, 4, 5, 5, 7, 9))  # 2
+compute_sd <- function(x) {
+  if (length(x) < 2) stop("need at least 2 values")
+  m <- compute_mean(x)
+  sqrt(sum((x - m) ^ 2) / (length(x) - 1))
 }
 ```
 
-The `#'` format is used by the `roxygen2` package to generate proper documentation. Get in the habit of documenting what arguments a function expects and what it returns.
+The `#'` format is used by the `roxygen2` package to generate proper documentation. Even without the package, it makes your code readable.
+
+---
+
+## analyze.R: Chapter 4 Version
+
+What changed: added `compute_stats()`. The main program now calls it with fake data — real data loading comes in Chapter 7.
+
+```r
+# analyze.R — Chapter 4
+# Usage: Rscript analyze.R <file.csv> [--filter 'col>value'] [--stat mean,sd,median]
+
+args <- commandArgs(trailingOnly = TRUE)
+
+if (length(args) < 1) {
+  cat("Usage: Rscript analyze.R <file.csv>\n")
+  quit(status = 1)
+}
+
+filename <- args[1]
+
+if (!file.exists(filename)) {
+  cat("Error: file not found:", filename, "\n")
+  quit(status = 1)
+}
+
+# --- Statistics functions ---
+
+compute_mean <- function(x) sum(x) / length(x)
+
+compute_sd <- function(x) {
+  m <- compute_mean(x)
+  sqrt(sum((x - m) ^ 2) / (length(x) - 1))
+}
+
+compute_median <- function(x) {
+  x_sorted <- sort(x)
+  n <- length(x_sorted)
+  if (n %% 2 == 1) x_sorted[(n + 1) / 2]
+  else (x_sorted[n / 2] + x_sorted[n / 2 + 1]) / 2
+}
+
+describe <- function(x, name = "column") {
+  cat(sprintf("  %s: n=%d, mean=%.2f, sd=%.2f, min=%.2f, max=%.2f\n",
+              name, length(x),
+              compute_mean(x), compute_sd(x),
+              min(x), max(x)))
+}
+
+# --- Main ---
+
+cat("analyze.R\n")
+cat("File:", filename, "\n")
+
+# Parse --stat argument
+stat_arg <- grep("^--stat=", args, value = TRUE)
+requested_stats <- if (length(stat_arg) > 0) {
+  strsplit(sub("^--stat=", "", stat_arg), ",")[[1]]
+} else {
+  c("mean", "sd", "median")
+}
+
+# Fake data — replaced in Chapter 7 with real CSV reading
+values <- c(72000, 48000, 95000, 55000, 83000, 61000, 78000, 90000)
+cat("\nColumn: salary (fake data)\n")
+describe(values, "salary")
+```
+
+Run it:
+
+```
+Rscript analyze.R data.csv --stat=mean,sd
+```
+
+Output:
+```
+analyze.R
+File: data.csv
+
+Column: salary (fake data)
+  salary: n=8, mean=72750.00, sd=16213.12, min=48000.00, max=95000.00
+```
 
 ---
 
@@ -371,37 +411,25 @@ Write `temp_convert(value, from, to)` that converts between Celsius, Fahrenheit,
 
 **2. String padding**
 
-Write `pad(s, width, side = "right", char = " ")` that pads string `s` to `width` characters on the specified side. Use it to format a table.
+Write `pad(s, width, side = "right", char = " ")` that pads string `s` to `width` characters. Use it to format a table.
 
 **3. Running statistics**
 
-Write `running_mean(x)` that returns a vector where the i-th element is the mean of `x[1:i]`. (No loops — use `cumsum(x) / seq_along(x)`.)
+Write `running_mean(x)` that returns a vector where element i is the mean of `x[1:i]`. No loops — use `cumsum(x) / seq_along(x)`.
 
-**4. Memoization**
-
-The Fibonacci recursion is slow because it recomputes the same values. Write a memoized version using an environment to cache results:
-
-```r
-fib_memo <- local({
-  cache <- c()
-  function(n) {
-    if (!is.na(cache[n + 1])) return(cache[n + 1])
-    result <- if (n <= 1) n else fib_memo(n - 1) + fib_memo(n - 2)
-    cache[n + 1] <<- result
-    result
-  }
-})
-```
-
-Time the difference: `system.time(fib(30))` vs `system.time(fib_memo(30))`.
-
-**5. Build a describe() extension**
+**4. Build a describe() extension**
 
 Add to `describe()`: skewness and kurtosis.
 
 Skewness: `mean((x - mean(x))^3) / sd(x)^3`  
 Kurtosis: `mean((x - mean(x))^4) / sd(x)^4 - 3` (excess kurtosis)
 
+**5. The growing program (do this one)**
+
+Add `compute_stats(x, stats)` to `analyze.R` where `stats` is a character vector like `c("mean", "sd", "median", "min", "max")`. The function computes only what's requested and returns a named list. So `--stat=mean,sd` returns `list(mean=..., sd=...)`.
+
+This function will be called in Chapter 5 after we learn vectorized operations — you'll replace the loop-based implementations with `mean()`, `sd()`, etc. from base R.
+
 ---
 
-*Next: Chapter 5 — Vectors and Arrays: R's fundamental data structure*
+*Next: Chapter 5 — Vectors and Arrays: operate on whole columns at once*

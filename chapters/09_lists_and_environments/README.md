@@ -4,14 +4,31 @@
 
 ---
 
+## Where We Left Off
+
+`analyze.R` accepts `--group`, `--filter`, `--stat`, and `--output` arguments. Each time we add a feature, the argument parsing grows. By now the top of the script looks like:
+
+```r
+filter_str  <- get_arg(args, "--filter")
+stat_str    <- get_arg(args, "--stat")
+output_file <- get_arg(args, "--output")
+group_col   <- get_arg(args, "--group")
+```
+
+Four separate variables, scattered through the code. And we want to add more: `--sep` for CSV separator, `--na` for how to treat missing values, `--decimal` for decimal point character.
+
+Better: collect all configuration into one list. Then pass the list around. Functions that need configuration take `config` as an argument — they don't dig through global state.
+
+---
+
 ## Lists
 
 A list is like a vector, but each element can be any type — including another list.
 
 ```r
 person <- list(
-  name  = "Alice",
-  age   = 30,
+  name   = "Alice",
+  age    = 30,
   scores = c(92, 88, 95),
   active = TRUE
 )
@@ -23,7 +40,7 @@ Access elements three ways:
 person$name        # "Alice"   — dollar sign
 person[["name"]]   # "Alice"   — double brackets (by name)
 person[[1]]        # "Alice"   — double brackets (by position)
-person["name"]     # list of length 1 (single brackets return a list!)
+person["name"]     # list of length 1 (single brackets return a sub-list!)
 ```
 
 `[[` extracts the element itself. `[` returns a sub-list.
@@ -40,7 +57,7 @@ person$active <- NULL                   # remove
 
 ## Nested Lists
 
-Lists can contain lists — ideal for representing hierarchical data:
+Lists can contain lists — ideal for hierarchical data:
 
 ```r
 company <- list(
@@ -52,12 +69,11 @@ company <- list(
   )
 )
 
-# Access nested elements
 company$employees[[1]]$name      # "Alice"
 company$employees[[2]]$salary    # 75000
 ```
 
-Iterate over a list:
+Iterate:
 
 ```r
 for (emp in company$employees) {
@@ -77,10 +93,10 @@ Apply a function to every element of a list:
 numbers <- list(a = c(1,2,3), b = c(4,5,6), c = c(7,8,9))
 
 lapply(numbers, mean)   # returns a list
-sapply(numbers, mean)   # returns a vector (simplified)
+sapply(numbers, mean)   # returns a named vector (simplified)
 ```
 
-`sapply` tries to simplify the result. If all results are the same type and same length, it returns a vector or matrix. Otherwise, it returns a list.
+`sapply` tries to simplify. If all results are the same type and length, it returns a vector or matrix. Otherwise, a list.
 
 ```r
 # Extract a field from each list element
@@ -90,40 +106,38 @@ salaries  # 90000 75000 105000
 
 ---
 
-## Program: Configuration System
+## Building the Config System
 
-A real-world use of lists — a config system that reads, validates, and uses nested configuration:
+The pattern: a list of defaults, overridden by user input.
 
 ```r
-# config.R
-# A configuration management system
-
-# ---- Default configuration ----
+# Default config — all options with sensible values
 default_config <- list(
-  server = list(
-    host = "localhost",
-    port = 8080,
-    workers = 4
+  input = list(
+    sep              = ",",
+    na_strings       = c("NA", "", "N/A", "null"),
+    header           = TRUE,
+    decimal          = ".",
+    stringsAsFactors = FALSE
   ),
-  database = list(
-    host     = "localhost",
-    port     = 5432,
-    name     = "myapp",
-    timeout  = 30
+  analysis = list(
+    stats  = c("n", "mean", "sd", "median", "min", "max"),
+    na_rm  = TRUE,
+    digits = 4
   ),
-  logging = list(
-    level  = "INFO",
-    file   = "app.log",
-    rotate = TRUE
+  output = list(
+    file   = NULL,
+    format = "text",  # "text" or "csv"
+    quiet  = FALSE
   ),
-  features = list(
-    cache     = TRUE,
-    analytics = FALSE,
-    debug     = FALSE
-  )
+  filter = NULL,
+  group  = NULL
 )
+```
 
-# ---- Merge two configs (user overrides defaults) ----
+Merge function — user values override defaults, but keep defaults for anything not specified:
+
+```r
 merge_config <- function(default, override) {
   result <- default
   for (key in names(override)) {
@@ -135,85 +149,66 @@ merge_config <- function(default, override) {
   }
   result
 }
+```
 
-# ---- Validate config ----
+---
+
+## Parsing Arguments into Config
+
+```r
+args_to_config <- function(args) {
+  override <- list()
+  
+  # --filter=salary>50000
+  f <- grep("^--filter=", args, value = TRUE)
+  if (length(f) > 0) override$filter <- sub("^--filter=", "", f[1])
+  
+  # --group=dept
+  g <- grep("^--group=", args, value = TRUE)
+  if (length(g) > 0) override$group <- sub("^--group=", "", g[1])
+  
+  # --stat=mean,sd,median
+  s <- grep("^--stat=", args, value = TRUE)
+  if (length(s) > 0)
+    override$analysis <- list(stats = strsplit(sub("^--stat=", "", s[1]), ",")[[1]])
+  
+  # --output=report.txt
+  o <- grep("^--output=", args, value = TRUE)
+  if (length(o) > 0)
+    override$output <- list(file = sub("^--output=", "", o[1]))
+  
+  # --sep=;
+  sep <- grep("^--sep=", args, value = TRUE)
+  if (length(sep) > 0)
+    override$input <- list(sep = sub("^--sep=", "", sep[1]))
+  
+  merge_config(default_config, override)
+}
+```
+
+---
+
+## Validating Config
+
+```r
 validate_config <- function(cfg) {
   errors <- character(0)
   
-  if (!is.numeric(cfg$server$port) || cfg$server$port < 1 || cfg$server$port > 65535)
-    errors <- c(errors, "server.port must be 1-65535")
+  valid_stats <- c("n","mean","sd","median","min","max","q1","q3","iqr")
+  bad_stats   <- setdiff(cfg$analysis$stats, valid_stats)
+  if (length(bad_stats) > 0)
+    errors <- c(errors, paste("Unknown stats:", paste(bad_stats, collapse=",")))
   
-  if (!is.numeric(cfg$server$workers) || cfg$server$workers < 1)
-    errors <- c(errors, "server.workers must be >= 1")
-  
-  if (!cfg$logging$level %in% c("DEBUG", "INFO", "WARNING", "ERROR"))
-    errors <- c(errors, "logging.level must be DEBUG/INFO/WARNING/ERROR")
+  valid_formats <- c("text","csv")
+  if (!cfg$output$format %in% valid_formats)
+    errors <- c(errors, paste("Unknown format:", cfg$output$format))
   
   if (length(errors) > 0) {
-    stop(paste("Config errors:\n", paste("-", errors, collapse="\n ")))
+    for (e in errors) cat("Config error:", e, "\n")
+    quit(status = 1)
   }
   invisible(TRUE)
 }
-
-# ---- Accessor: nested key lookup ----
-# "server.port" → cfg$server$port
-get_config <- function(cfg, key) {
-  keys <- strsplit(key, "\\.")[[1]]
-  result <- cfg
-  for (k in keys) {
-    if (!k %in% names(result)) return(NULL)
-    result <- result[[k]]
-  }
-  result
-}
-
-# ---- Print config tree ----
-print_config <- function(cfg, indent = 0) {
-  for (key in names(cfg)) {
-    if (is.list(cfg[[key]])) {
-      cat(strrep("  ", indent), key, ":\n", sep="")
-      print_config(cfg[[key]], indent + 1)
-    } else {
-      val <- cfg[[key]]
-      cat(sprintf("%s%-12s = %s\n", strrep("  ", indent), key, 
-                  paste(val, collapse=", ")))
-    }
-  }
-}
-
-# ---- Use it ----
-user_config <- list(
-  server = list(port = 9000, workers = 8),
-  features = list(analytics = TRUE, debug = TRUE)
-)
-
-config <- merge_config(default_config, user_config)
-validate_config(config)
-
-cat("=== Active Configuration ===\n")
-print_config(config)
-
-cat("\n=== Key Lookups ===\n")
-cat("server.port:      ", get_config(config, "server.port"), "\n")
-cat("logging.level:    ", get_config(config, "logging.level"), "\n")
-cat("features.debug:   ", get_config(config, "features.debug"), "\n")
-```
-
-Output:
-```
-=== Active Configuration ===
-server      :
-  host         = localhost
-  port         = 9000
-  workers      = 8
-database    :
-  host         = localhost
-  port         = 5432
-  ...
-features    :
-  cache        = TRUE
-  analytics    = TRUE
-  debug        = TRUE
 ```
 
 ---
@@ -229,12 +224,11 @@ e$y <- "hello"
 
 ls(e)          # "x" "y"
 e$x            # 42
-get("x", envir = e)   # 42
 ```
 
 Environments have parent environments (the enclosure chain). Every function has its own environment.
 
-The main use you'll encounter: **closures** — functions that capture their enclosing environment.
+The main practical use: **closures** — functions that capture their enclosing environment.
 
 ```r
 make_counter <- function() {
@@ -255,7 +249,69 @@ counter$reset()
 counter$get()     # 0
 ```
 
-Each call to `make_counter()` creates a fresh environment with its own `count`. The returned list of functions all share that environment — they form a closure.
+Each call to `make_counter()` creates a fresh environment with its own `count`. The returned functions all share that environment.
+
+---
+
+## analyze.R: Chapter 9 Version
+
+What changed: all loose arguments collapsed into one `config` list. Functions that need settings take `config` as a parameter.
+
+```r
+# analyze.R — Chapter 9
+# Usage: Rscript analyze.R <file.csv> [--group=col] [--filter=col>val]
+#                                     [--stat=mean,sd] [--output=file.txt]
+#                                     [--sep=,] [--format=text]
+
+args <- commandArgs(trailingOnly = TRUE)
+
+if (length(args) < 1) {
+  cat("Usage: Rscript analyze.R <file.csv> [options]\n")
+  cat("Options:\n")
+  cat("  --filter=col>val     Filter rows\n")
+  cat("  --group=col          Group by column\n")
+  cat("  --stat=mean,sd,...   Statistics to compute\n")
+  cat("  --output=file.txt    Write report to file\n")
+  cat("  --sep=,              CSV separator\n")
+  quit(status = 1)
+}
+
+filename <- args[1]
+if (!file.exists(filename)) {
+  cat("Error: file not found:", filename, "\n")
+  quit(status = 1)
+}
+
+# Build config from args
+config <- args_to_config(args)
+validate_config(config)
+
+# Read file using config
+df_raw <- read.csv(filename,
+  sep              = config$input$sep,
+  header           = config$input$header,
+  na.strings       = config$input$na_strings,
+  dec              = config$input$decimal,
+  stringsAsFactors = config$input$stringsAsFactors
+)
+
+if (!config$output$quiet)
+  cat(sprintf("Read %d rows × %d columns from %s\n", nrow(df_raw), ncol(df_raw), filename))
+
+# ... (rest of processing uses config throughout)
+```
+
+Now the function signatures are clean:
+
+```r
+compute_grouped_stats <- function(df, group_col, value_cols, config) {
+  stats <- config$analysis$stats
+  na.rm <- config$analysis$na_rm
+  # ...
+}
+```
+
+No global state. All behavior flows through `config`.
 
 ---
 
@@ -269,9 +325,9 @@ Represent a book catalogue as a list of lists. Each book has: title, author, yea
 - Find books under a price threshold
 - Calculate total inventory value
 
-**2. Extend the config system**
+**2. Config persistence**
 
-Add `save_config(cfg, file)` and `load_config(file)` using `saveRDS`/`readRDS`. Add `set_config(cfg, key, value)` that takes a dotted key like `"server.port"` and sets the nested value.
+Add `save_config(cfg, file)` and `load_config(file)` using `saveRDS`/`readRDS`. Then add `set_config(cfg, key, value)` that takes a dotted key like `"analysis.digits"` and sets the nested value.
 
 **3. Memoization with environments**
 
@@ -280,24 +336,38 @@ A proper memoization function:
 memoize <- function(f) {
   cache <- new.env(hash = TRUE, parent = emptyenv())
   function(...) {
-    key <- paste(list(...), collapse="|")
-    if (exists(key, envir = cache)) {
-      return(get(key, envir = cache))
-    }
+    key <- paste(list(...), collapse = "|")
+    if (exists(key, envir = cache)) return(get(key, envir = cache))
     result <- f(...)
     assign(key, result, envir = cache)
     result
   }
 }
 ```
-Use it: `fib_m <- memoize(fib)`. Time the difference.
 
 **4. Stack and queue**
 
-Implement a stack and a queue using lists:
+Implement a stack and queue using lists:
 - Stack: `push(s, x)`, `pop(s)`, `peek(s)`, `is_empty(s)`
 - Queue: `enqueue(q, x)`, `dequeue(q)`, `front(q)`, `is_empty(q)`
 
+**5. The growing program (do this one)**
+
+Add `--config=config.rds` support to `analyze.R`. If passed, load config from the file and merge with any command-line overrides (command-line wins). This way, users can save a config for a recurring report:
+
+```r
+# Create config file
+cfg <- default_config
+cfg$analysis$stats <- c("mean","sd","n")
+cfg$group <- "dept"
+saveRDS(cfg, "payroll_config.rds")
+
+# Use it later
+Rscript analyze.R employees.csv --config=payroll_config.rds --output=report.txt
+```
+
+In Chapter 10, we'll process *multiple* files at once. The config system makes this clean: one config object controls how all files are processed.
+
 ---
 
-*Next: Chapter 10 — The Apply Family: avoiding loops with vectorized tools*
+*Next: Chapter 10 — The Apply Family: process multiple files with lapply/sapply*

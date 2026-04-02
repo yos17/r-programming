@@ -4,14 +4,26 @@
 
 ---
 
+## Where We Left Off
+
+`analyze.R` processes one CSV file with a config system. But data often comes in pieces:
+
+```
+Rscript analyze.R january.csv february.csv march.csv --stat=mean,sd
+```
+
+We could add a loop. Better: learn R's apply family, which replaces most loops with cleaner, more composable code. Then `analyze.R` becomes a function, and we call it via `lapply`.
+
+---
+
 ## Why Apply?
 
 In R, explicit `for` loops are:
-1. Slower than vectorized operations
+1. Slower than vectorized operations for large data
 2. More verbose
-3. Less idiomatic
+3. Less composable (harder to chain)
 
-The apply family replaces most loops with cleaner, faster, more composable code.
+The apply family replaces most loops with cleaner, faster code.
 
 ---
 
@@ -20,13 +32,11 @@ The apply family replaces most loops with cleaner, faster, more composable code.
 ```r
 m <- matrix(1:12, nrow = 3)
 
-apply(m, 1, sum)   # row sums:    6 22 38  (MARGIN=1 = rows)
-apply(m, 2, sum)   # column sums: 6  9 12 15  (MARGIN=2 = cols)
+apply(m, 1, sum)   # row sums    (MARGIN=1 = rows)
+apply(m, 2, sum)   # column sums (MARGIN=2 = cols)
 apply(m, 1, mean)  # row means
-apply(m, 2, sd)    # column standard deviations
+apply(m, 2, sd)    # column SDs
 ```
-
-`MARGIN = 1` applies over rows. `MARGIN = 2` applies over columns.
 
 With a custom function:
 
@@ -34,7 +44,7 @@ With a custom function:
 apply(m, 1, function(row) max(row) - min(row))   # range of each row
 ```
 
-(For simple row/column operations, `rowSums`, `colSums`, `rowMeans`, `colMeans` are faster.)
+(For simple row/column ops, `rowSums`, `colSums`, `rowMeans`, `colMeans` are faster.)
 
 ---
 
@@ -48,29 +58,31 @@ lapply(1:5, function(x) x^2)
 # sapply: simplifies to vector/matrix when possible
 sapply(1:5, function(x) x^2)
 # 1 4 9 16 25
-
-# Both work on any vector, not just numbers
-files <- list.files(".", pattern = "*.R")
-sizes <- sapply(files, file.size)
 ```
 
-`sapply` is `lapply` + simplification. Use `sapply` when you want a clean result; use `lapply` when you need a list or the result type is uncertain.
+`sapply` is `lapply` + simplification. Use `sapply` when you expect a clean vector result; use `lapply` when the result type is uncertain.
+
+```r
+# Practical: get file sizes for all CSVs in a directory
+files <- list.files(".", pattern = "\\.csv$")
+sizes <- sapply(files, file.size)
+```
 
 ---
 
 ## vapply — Type-Safe Apply
 
-`vapply` is like `sapply` but you specify the expected output type:
+`vapply` is like `sapply` but you declare the expected output type:
 
 ```r
 vapply(1:5, function(x) x^2, FUN.VALUE = numeric(1))
 # 1 4 9 16 25
 
-# Crashes if result isn't the declared type:
-vapply(1:5, function(x) as.character(x), FUN.VALUE = character(1))
+# Crashes if result isn't the declared type — catches bugs early
+vapply(c("a","b","c"), nchar, FUN.VALUE = integer(1))
 ```
 
-Use `vapply` in production code — it's safer than `sapply` because it catches type mismatches.
+Use `vapply` in production code over `sapply`.
 
 ---
 
@@ -79,8 +91,8 @@ Use `vapply` in production code — it's safer than `sapply` because it catches 
 Group a vector by a factor, then apply a function:
 
 ```r
-scores  <- c(85, 72, 95, 68, 90, 78)
-grades  <- c("B", "C", "A", "C", "A", "B")
+scores <- c(85, 72, 95, 68, 90, 78)
+grades <- c("B", "C", "A", "C", "A", "B")
 
 tapply(scores, grades, mean)
 # A    B    C
@@ -93,7 +105,7 @@ Equivalent to: for each unique value of `grades`, compute `mean(scores[grades ==
 
 ## Map — Multiple Inputs
 
-`Map` applies a function to multiple lists in parallel (like `mapply`):
+`Map` applies a function to multiple lists in parallel:
 
 ```r
 names  <- c("Alice", "Bob", "Carol")
@@ -101,13 +113,9 @@ scores <- c(92, 78, 95)
 
 Map(function(n, s) paste(n, "scored", s), names, scores)
 # list("Alice scored 92", "Bob scored 78", "Carol scored 95")
-```
 
-As a vector:
-
-```r
+# As a vector:
 mapply(function(n, s) paste(n, "scored", s), names, scores)
-# "Alice scored 92" "Bob scored 78" "Carol scored 95"
 ```
 
 ---
@@ -121,12 +129,12 @@ Reduce("+", 1:5)          # ((((1+2)+3)+4)+5) = 15
 Reduce("*", 1:5)          # 120 (5!)
 Reduce(max, c(3,1,4,1,5)) # 5
 
-# With accumulate=TRUE: return intermediate results
+# With accumulate=TRUE: intermediate results
 Reduce("+", 1:5, accumulate = TRUE)
 # 1 3 6 10 15  (running sum)
 ```
 
-Custom reduce — e.g., merge multiple data frames:
+Combine multiple data frames:
 
 ```r
 dfs <- list(df1, df2, df3)
@@ -149,24 +157,57 @@ Position(is.character, x)  # 2 (index of first match)
 
 ---
 
-## Program: Batch Data Cleaner
+## do.call
+
+`do.call` calls a function with a list as arguments. Essential for combining apply results:
+
+```r
+# Combine a list of data frames into one
+combined <- do.call(rbind, list_of_dfs)
+
+# Pass variable arguments
+do.call(paste, list("a", "b", "c", sep = "-"))  # "a-b-c"
+```
+
+---
+
+## Processing Multiple Files
+
+Here's the pattern for batch processing:
+
+```r
+# The wrong way (loop)
+results <- list()
+for (f in files) {
+  df <- read.csv(f)
+  results[[f]] <- mean(df$salary, na.rm = TRUE)
+}
+
+# The R way (lapply)
+results <- lapply(files, function(f) {
+  df <- read.csv(f)
+  mean(df$salary, na.rm = TRUE)
+})
+names(results) <- files
+```
+
+Same result. The second version is more concise and the function passed to `lapply` can be extracted, named, and tested independently.
+
+---
+
+## Batch Data Cleaner
 
 ```r
 # batch_cleaner.R
-# Clean and transform multiple datasets using apply family
-
-# ---- Simulate multiple messy datasets ----
-set.seed(42)
 
 make_messy_data <- function(n, noise = 0.1) {
   df <- data.frame(
-    id     = 1:n,
-    value  = round(rnorm(n, 100, 20), 2),
-    label  = sample(c("A","B","C", NA), n, replace=TRUE, prob=c(.3,.3,.3,.1)),
-    extra  = sample(c(runif(n*0.9), rep(NA, n*0.1))),
+    id    = 1:n,
+    value = round(rnorm(n, 100, 20), 2),
+    label = sample(c("A","B","C", NA), n, replace=TRUE, prob=c(.3,.3,.3,.1)),
     stringsAsFactors = FALSE
   )
-  # Introduce some outliers
+  # Introduce outliers
   outlier_idx <- sample(n, max(1, round(n * noise)))
   df$value[outlier_idx] <- df$value[outlier_idx] * 5
   df
@@ -175,96 +216,96 @@ make_messy_data <- function(n, noise = 0.1) {
 datasets <- lapply(1:5, function(i) make_messy_data(sample(50:100, 1)))
 names(datasets) <- paste0("dataset_", 1:5)
 
-# ---- Cleaning pipeline ----
 clean_dataset <- function(df) {
-  # 1. Remove rows with NA in key columns
-  df <- df[!is.na(df$label), ]
-  
-  # 2. Remove outliers (> 3 SD from mean)
+  df <- df[!is.na(df$label), ]                        # drop NA labels
   m <- mean(df$value, na.rm = TRUE)
   s <- sd(df$value, na.rm = TRUE)
-  df <- df[abs(df$value - m) < 3 * s, ]
-  
-  # 3. Normalize value to 0-1
-  vmin <- min(df$value)
-  vmax <- max(df$value)
-  df$value_norm <- (df$value - vmin) / (vmax - vmin)
-  
-  # 4. Fill NA in extra with median
-  med_extra <- median(df$extra, na.rm = TRUE)
-  df$extra[is.na(df$extra)] <- med_extra
-  
+  df <- df[abs(df$value - m) < 3 * s, ]               # remove outliers
+  df$value_norm <- (df$value - min(df$value)) /
+                   (max(df$value) - min(df$value))     # normalize 0-1
   df
 }
 
 cleaned <- lapply(datasets, clean_dataset)
 
-# ---- Summary statistics per dataset ----
-summarize_dataset <- function(df, name) {
+# Summary per dataset
+summary_list <- Map(function(orig, clean, name) {
   data.frame(
-    dataset     = name,
-    n_rows      = nrow(df),
-    mean_value  = round(mean(df$value), 2),
-    sd_value    = round(sd(df$value), 2),
-    label_A_pct = round(100 * mean(df$label == "A"), 1),
-    na_extra    = sum(is.na(df$extra))
+    dataset    = name,
+    n_orig     = nrow(orig),
+    n_clean    = nrow(clean),
+    pct_kept   = round(100 * nrow(clean) / nrow(orig), 1),
+    mean_value = round(mean(clean$value), 2)
   )
-}
+}, datasets, cleaned, names(datasets))
 
-summary_list <- Map(summarize_dataset, cleaned, names(cleaned))
-summary_df   <- do.call(rbind, summary_list)
-
-cat("=== Cleaning Results ===\n")
-
-# Original sizes
-orig_sizes <- sapply(datasets, nrow)
-clean_sizes <- sapply(cleaned, nrow)
-removed <- orig_sizes - clean_sizes
-cat("\nRows removed per dataset:\n")
-for (i in seq_along(orig_sizes)) {
-  pct <- 100 * removed[i] / orig_sizes[i]
-  cat(sprintf("  %s: %d → %d (removed %d, %.1f%%)\n",
-              names(orig_sizes)[i],
-              orig_sizes[i], clean_sizes[i],
-              removed[i], pct))
-}
-
-cat("\nClean dataset summaries:\n")
+summary_df <- do.call(rbind, summary_list)
 print(summary_df, row.names = FALSE)
 
-# ---- Aggregate across all datasets ----
-all_clean <- do.call(rbind, cleaned)
-cat(sprintf("\nCombined: %d rows across %d datasets\n",
-            nrow(all_clean), length(cleaned)))
-
-# Group means by label across all datasets
+# Combine all cleaned data
+all_clean   <- do.call(rbind, cleaned)
 group_means <- tapply(all_clean$value, all_clean$label, mean)
-cat("\nMean value by label (all datasets combined):\n")
-for (lbl in names(group_means)) {
-  cat(sprintf("  %s: %.2f\n", lbl, group_means[[lbl]]))
-}
-
-# ---- Find datasets with highest variability ----
-cv <- sapply(cleaned, function(df) sd(df$value) / mean(df$value))
-cat("\nCoefficient of variation (higher = more variable):\n")
-cv_sorted <- sort(cv, decreasing = TRUE)
-for (nm in names(cv_sorted)) {
-  cat(sprintf("  %-15s : %.3f\n", nm, cv_sorted[[nm]]))
-}
+cat("\nMean value by label (all datasets):\n")
+for (lbl in names(group_means)) cat(sprintf("  %s: %.2f\n", lbl, group_means[[lbl]]))
 ```
 
 ---
 
-## do.call
+## analyze.R: Chapter 10 Version
 
-`do.call` calls a function with a list as arguments. Essential for combining apply results:
+What changed: `analyze.R` can now accept multiple CSV files. `lapply` processes each one; `do.call(rbind, ...)` combines results.
 
 ```r
-# Combine a list of data frames
-combined <- do.call(rbind, list_of_dfs)
+# analyze.R — Chapter 10 (multi-file support shown)
 
-# Pass variable number of arguments
-do.call(paste, list("a", "b", "c", sep = "-"))  # "a-b-c"
+# Collect all non-flag arguments as filenames
+filenames <- args[!grepl("^--", args)]
+
+if (length(filenames) == 0) {
+  cat("Error: no input files specified\n")
+  quit(status = 1)
+}
+
+# Check they all exist
+missing_files <- filenames[!file.exists(filenames)]
+if (length(missing_files) > 0) {
+  cat("Error: file(s) not found:", paste(missing_files, collapse=", "), "\n")
+  quit(status = 1)
+}
+
+# Read all files
+read_file <- function(f, config) {
+  df <- read.csv(f,
+    sep              = config$input$sep,
+    header           = config$input$header,
+    na.strings       = config$input$na_strings,
+    stringsAsFactors = FALSE
+  )
+  df$.source <- f   # track which file each row came from
+  df
+}
+
+dfs <- lapply(filenames, read_file, config = config)
+
+# Check columns are compatible
+col_sets  <- lapply(dfs, names)
+common_cols <- Reduce(intersect, col_sets)
+if (length(common_cols) < ncol(dfs[[1]])) {
+  cat(sprintf("Note: combining on %d common columns (of %d)\n",
+              length(common_cols), ncol(dfs[[1]])))
+}
+
+# Combine
+df_all <- do.call(rbind, lapply(dfs, function(d) d[, common_cols, drop=FALSE]))
+
+cat(sprintf("Combined %d files: %d rows × %d columns\n",
+            length(filenames), nrow(df_all), ncol(df_all)))
+```
+
+Run it:
+
+```
+Rscript analyze.R jan.csv feb.csv mar.csv --group=dept --stat=mean
 ```
 
 ---
@@ -273,26 +314,22 @@ do.call(paste, list("a", "b", "c", sep = "-"))  # "a-b-c"
 
 **1. Apply practice**
 
-Given a list of numeric vectors of different lengths:
+Given:
 ```r
 data <- list(a = c(1,5,3,2), b = c(10,2,8), c = c(4,4,4,4,4))
 ```
 Using only apply-family functions (no for loops):
 - Find the mean of each
 - Find the range (max - min) of each
-- Find the length of each
 - Find the sum of all values across all lists
 
 **2. tapply report**
 
-Use the `patients` dataset from Chapter 8. Use `tapply` to compute:
-- Mean cost by department
-- Readmission rate by gender AND department (two-way tapply)
-- Mean age by readmitted status
+Use `tapply` to compute mean cost by department, readmission rate by gender AND department (two-way), and mean age by readmitted status. Use any patient dataset.
 
 **3. Functional pipeline**
 
-Write a `pipeline` function that takes a list of functions and applies them in sequence:
+Write a `pipeline` function:
 ```r
 pipeline <- function(x, ...) {
   fns <- list(...)
@@ -300,20 +337,38 @@ pipeline <- function(x, ...) {
 }
 
 pipeline(c(1, -2, 3, -4, 5),
-  function(x) x[x > 0],   # keep positive
-  sum,                     # sum
-  sqrt)                    # square root
+  function(x) x[x > 0],
+  sum,
+  sqrt)
+# Expected: sqrt(1 + 3 + 5) = sqrt(9) = 3
 ```
 
 **4. Parallel Map**
 
-Use `Map` to compute a pairwise dot product between two lists of vectors:
+Use `Map` to compute pairwise dot products:
 ```r
 vecs1 <- list(c(1,2,3), c(4,5,6), c(7,8,9))
 vecs2 <- list(c(1,0,0), c(0,1,0), c(0,0,1))
 # Expected: 1, 5, 9
 ```
 
+**5. The growing program (do this one)**
+
+`analyze.R` currently combines all input files into one data frame and analyzes them together. Add a `--per-file` flag that instead processes each file separately and shows per-file statistics side by side:
+
+```
+Rscript analyze.R jan.csv feb.csv --stat=mean,n --per-file
+```
+
+Output:
+```
+Column: salary
+  jan.csv : n=50   mean=72000
+  feb.csv : n=48   mean=74500
+```
+
+Use `sapply` to extract the same statistic from each file's results. In Chapter 11, we'll wrap the whole analysis object (data + config + results) into an S3 class called `Dataset`.
+
 ---
 
-*Next: Chapter 11 — Packages and OOP: using CRAN and building your own*
+*Next: Chapter 11 — Packages and OOP: wrap analyze.R into a Dataset class*

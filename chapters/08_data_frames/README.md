@@ -4,9 +4,35 @@
 
 ---
 
-## The Data Frame in Depth
+## Where We Left Off
 
-A data frame is a list of vectors, all the same length. Each column is a vector (and can be a different type). Each row is one observation.
+`analyze.R` now reads a real CSV and computes statistics for each numeric column. Run it on our employees file:
+
+```
+Rscript analyze.R employees.csv --stat=mean,sd
+```
+
+It reports the overall mean salary. But what we really want is:
+
+```
+Rscript analyze.R employees.csv --group=dept --stat=mean
+```
+
+Output:
+```
+--- salary by dept ---
+  Engineering : mean = 83500.00
+  Sales       : mean = 65500.00
+  HR          : mean = 55000.00
+```
+
+That requires grouping. Grouping requires understanding data frames — R's core structure for tabular data.
+
+---
+
+## The Data Frame
+
+A data frame is a list of vectors, all the same length. Each column is a vector (can be different types). Each row is one observation.
 
 ```r
 df <- data.frame(
@@ -35,15 +61,14 @@ Subset columns:
 ```r
 df[, c("name", "score")]           # by name
 df[, 1:3]                          # by position
-df["name"]                         # returns data frame (1 column)
-df$name                            # returns vector
-df[["name"]]                       # returns vector (same as $)
+df$name                            # column as vector
+df[["name"]]                       # same thing
 ```
 
 Combine:
 
 ```r
-df[df$score >= 90, c("name", "score")]   # high scorers, name + score only
+df[df$score >= 90, c("name", "score")]
 ```
 
 ---
@@ -57,15 +82,12 @@ df$grade <- ifelse(df$score >= 90, "A",
 
 # Add with transform()
 df <- transform(df, 
-  score_z = (score - mean(score)) / sd(score),
-  senior  = age > 28
+  score_z = (score - mean(score)) / sd(score)
 )
 
 # Remove
-df$senior <- NULL
-
-# Multiple remove
-df[c("score_z", "grade")] <- NULL
+df$grade <- NULL
+df[c("score_z")] <- NULL
 ```
 
 ---
@@ -73,28 +95,62 @@ df[c("score_z", "grade")] <- NULL
 ## Ordering
 
 ```r
-# Sort by score descending
-df[order(-df$score), ]
-
-# Sort by multiple columns
-df[order(df$age, -df$score), ]
-
-# Sort in place
-df <- df[order(df$name), ]
+df[order(-df$score), ]                  # sort by score descending
+df[order(df$age, -df$score), ]          # sort by multiple columns
 ```
 
 ---
 
-## Aggregation: tapply and aggregate
+## The Wrong Way to Group
+
+The most natural approach when you first learn R: a for loop.
 
 ```r
-# tapply: apply function by group
-tapply(df$score, df$grade, mean)
-
-# aggregate: more powerful
-aggregate(score ~ grade, data = df, FUN = mean)
-aggregate(cbind(score, age) ~ grade, data = df, FUN = mean)
+# Loop approach — works but verbose
+depts <- unique(df$dept)
+for (d in depts) {
+  sub <- df[df$dept == d, ]
+  cat(sprintf("  %s: mean salary = %.0f\n", d, mean(sub$salary)))
+}
 ```
+
+This works. But R has a better way.
+
+---
+
+## tapply: Apply by Group
+
+`tapply` groups a vector by a factor and applies a function:
+
+```r
+tapply(df$salary, df$dept, mean)
+# Engineering      HR    Sales
+#    83500.00  55000.0  65500.0
+
+tapply(df$salary, df$dept, length)  # count per group
+tapply(df$salary, df$dept, sd)      # SD per group
+```
+
+One line instead of six. Faster. Cleaner.
+
+---
+
+## aggregate: Multiple Columns, Multiple Stats
+
+```r
+# Mean of salary and years, by dept
+aggregate(cbind(salary, years) ~ dept, data = df, FUN = mean)
+```
+
+Output:
+```
+          dept   salary years
+1  Engineering 83500.00   2.5
+2           HR 55000.00  10.0
+3        Sales 65500.00   6.0
+```
+
+`cbind(salary, years) ~ dept` means "salary and years, grouped by dept." This SQL-like formula syntax is used throughout R's statistical functions.
 
 ---
 
@@ -105,23 +161,16 @@ Like SQL joins:
 ```r
 employees <- data.frame(
   id   = 1:5,
-  name = c("Alice", "Bob", "Carol", "Dave", "Eve"),
+  name = c("Alice","Bob","Carol","Dave","Eve"),
   dept_id = c(1, 2, 1, 3, 2)
 )
-
 departments <- data.frame(
   dept_id   = 1:3,
-  dept_name = c("Engineering", "Sales", "HR")
+  dept_name = c("Engineering","Sales","HR")
 )
 
-# Inner join (only matching rows)
-merged <- merge(employees, departments, by = "dept_id")
-
-# Left join (all employees, even without dept)
-left <- merge(employees, departments, by = "dept_id", all.x = TRUE)
-
-# All = outer join
-outer <- merge(employees, departments, by = "dept_id", all = TRUE)
+merged <- merge(employees, departments, by = "dept_id")      # inner join
+left   <- merge(employees, departments, by = "dept_id", all.x = TRUE)  # left join
 ```
 
 ---
@@ -129,145 +178,127 @@ outer <- merge(employees, departments, by = "dept_id", all = TRUE)
 ## rbind and cbind
 
 ```r
-# Stack data frames vertically
 df1 <- data.frame(x = 1:3, y = c("a","b","c"))
 df2 <- data.frame(x = 4:6, y = c("d","e","f"))
-combined <- rbind(df1, df2)
-
-# Add columns horizontally
-df_extra <- data.frame(z = c(10, 20, 30, 40, 50, 60))
-full <- cbind(combined, df_extra)
+combined <- rbind(df1, df2)          # stack vertically (must have same columns)
 ```
 
 ---
 
-## Program: Exploratory Analysis Pipeline
+## Exploratory Analysis Pipeline
 
 ```r
-# eda.R
-# Complete exploratory data analysis pipeline
+# eda.R — quick EDA on any data frame
 
-# Simulate a dataset: hospital patient data
-set.seed(123)
-n <- 200
-
-generate_patients <- function(n) {
-  data.frame(
-    id          = sprintf("P%04d", 1:n),
-    age         = round(rnorm(n, mean = 45, sd = 15)),
-    gender      = sample(c("M", "F"), n, replace = TRUE),
-    department  = sample(c("Cardiology", "Neurology", "Orthopedics",
-                           "Oncology", "Emergency"), n, replace = TRUE),
-    los_days    = round(pmax(1, rnorm(n, mean = 5, sd = 3))), # length of stay
-    readmitted  = sample(c(TRUE, FALSE), n, replace = TRUE, prob = c(0.15, 0.85)),
-    cost        = round(pmax(500, rnorm(n, mean = 8000, sd = 4000)), -2),
-    stringsAsFactors = FALSE
-  )
-}
-
-patients <- generate_patients(n)
-
-# ---- Helper: print a labeled section ----
-section <- function(title) {
-  cat("\n", strrep("=", 50), "\n", title, "\n", strrep("=", 50), "\n", sep="")
-}
-
-section("DATASET OVERVIEW")
-cat(sprintf("Rows: %d  |  Columns: %d\n", nrow(patients), ncol(patients)))
-cat("Column types:\n")
-for (col in names(patients)) {
-  cat(sprintf("  %-15s : %s\n", col, class(patients[[col]])))
-}
-
-# ---- Missing values ----
-section("MISSING VALUES")
-na_counts <- sapply(patients, function(x) sum(is.na(x)))
-if (any(na_counts > 0)) {
-  print(na_counts[na_counts > 0])
-} else {
-  cat("No missing values.\n")
-}
-
-# ---- Numeric summaries ----
-section("NUMERIC SUMMARIES")
-num_cols <- c("age", "los_days", "cost")
-for (col in num_cols) {
-  x <- patients[[col]]
-  cat(sprintf("\n%s:\n", col))
-  cat(sprintf("  Mean ± SD : %.1f ± %.1f\n", mean(x), sd(x)))
-  cat(sprintf("  Median    : %.1f\n", median(x)))
-  cat(sprintf("  Range     : [%.0f, %.0f]\n", min(x), max(x)))
-  cat(sprintf("  IQR       : %.1f\n", IQR(x)))
-}
-
-# ---- Categorical summaries ----
-section("CATEGORICAL SUMMARIES")
-cat_cols <- c("gender", "department", "readmitted")
-for (col in cat_cols) {
-  cat(sprintf("\n%s:\n", col))
-  freq <- table(patients[[col]])
-  pct  <- round(100 * prop.table(freq), 1)
-  for (nm in names(freq)) {
-    cat(sprintf("  %-15s : %3d (%5.1f%%)\n", nm, freq[[nm]], pct[[nm]]))
+eda <- function(df, name = "dataset") {
+  cat(sprintf("=== %s ===\n", name))
+  cat(sprintf("Dimensions: %d rows × %d columns\n\n", nrow(df), ncol(df)))
+  
+  # Column types and NAs
+  cat("Columns:\n")
+  for (col in names(df)) {
+    x <- df[[col]]
+    na_pct <- 100 * sum(is.na(x)) / length(x)
+    type_info <- if (is.numeric(x)) {
+      sprintf("numeric  [%.1f, %.1f]", min(x, na.rm=T), max(x, na.rm=T))
+    } else {
+      sprintf("character %d unique", length(unique(x[!is.na(x)])))
+    }
+    cat(sprintf("  %-15s : %-30s NAs: %.0f%%\n", col, type_info, na_pct))
   }
 }
 
-# ---- Department analysis ----
-section("DEPARTMENT ANALYSIS")
-dept_stats <- aggregate(
-  cbind(age, los_days, cost) ~ department,
-  data = patients,
-  FUN  = mean
+# Patient dataset example
+set.seed(123)
+n <- 200
+patients <- data.frame(
+  id         = sprintf("P%04d", 1:n),
+  age        = round(rnorm(n, 45, 15)),
+  gender     = sample(c("M","F"), n, replace = TRUE),
+  department = sample(c("Cardiology","Neurology","Orthopedics","Emergency"), n, replace=TRUE),
+  los_days   = round(pmax(1, rnorm(n, 5, 3))),
+  cost       = round(pmax(500, rnorm(n, 8000, 4000)), -2),
+  stringsAsFactors = FALSE
 )
-dept_stats <- round(dept_stats[, -1], 1)
-dept_stats <- cbind(
-  department = unique(patients$department)[order(unique(patients$department))],
-  dept_stats
-)
-dept_stats <- dept_stats[order(dept_stats$cost, decreasing = TRUE), ]
 
-cat(sprintf("%-15s  %6s  %8s  %10s\n", "Department", "Avg Age", "Avg LOS", "Avg Cost"))
-cat(strrep("-", 45), "\n")
-for (i in seq_len(nrow(dept_stats))) {
-  cat(sprintf("%-15s  %6.1f  %8.1f  %10.0f\n",
-              dept_stats$department[i],
-              dept_stats$age[i],
-              dept_stats$los_days[i],
-              dept_stats$cost[i]))
+eda(patients, "Hospital Patients")
+
+# Group analysis
+cat("\n--- Cost by Department ---\n")
+dept_stats <- aggregate(cbind(age, los_days, cost) ~ department,
+                        data = patients, FUN = mean)
+dept_stats <- dept_stats[order(-dept_stats$cost), ]
+print(round(dept_stats, 1))
+
+# Cost outliers
+q3  <- quantile(patients$cost, 0.75)
+iqr <- IQR(patients$cost)
+outliers <- patients[patients$cost > q3 + 1.5 * iqr,
+                     c("id","department","los_days","cost")]
+cat(sprintf("\n%d cost outliers (> Q3 + 1.5×IQR = $%.0f):\n",
+            nrow(outliers), q3 + 1.5 * iqr))
+print(head(outliers[order(-outliers$cost), ], 5))
+```
+
+---
+
+## analyze.R: Chapter 8 Version
+
+What changed: added `--group` argument. When present, compute stats per group using `tapply`.
+
+```r
+# analyze.R — Chapter 8 (grouping logic shown)
+
+# --- Parse --group argument ---
+group_col <- get_arg(args, "--group")
+
+# --- Compute stats ---
+if (!is.null(group_col) && group_col %in% names(df)) {
+  cat(sprintf("\nGrouped by: %s\n", group_col))
+  groups <- sort(unique(df[[group_col]]))
+  
+  for (col in names(df)) {
+    if (!is.numeric(df[[col]])) next
+    
+    cat(sprintf("\n--- %s by %s ---\n", col, group_col))
+    
+    # tapply computes the stat per group
+    group_means <- tapply(df[[col]], df[[group_col]], mean, na.rm = TRUE)
+    group_sds   <- tapply(df[[col]], df[[group_col]], sd,   na.rm = TRUE)
+    group_ns    <- tapply(df[[col]], df[[group_col]], length)
+    
+    for (g in sort(names(group_means))) {
+      cat(sprintf("  %-20s : n=%-3d  mean=%.2f  sd=%.2f\n",
+                  g, group_ns[g], group_means[g],
+                  ifelse(is.na(group_sds[g]), 0, group_sds[g])))
+    }
+  }
+} else {
+  # Overall stats (existing code from Chapter 7)
+  for (col in names(df)) {
+    if (!is.numeric(df[[col]])) next
+    stats <- compute_stats(df[[col]][!is.na(df[[col]])], requested_stats)
+    cat(sprintf("\n--- %s ---\n", col))
+    for (nm in names(stats)) cat(sprintf("  %-8s = %.4f\n", nm, stats[[nm]]))
+  }
 }
+```
 
-# ---- Readmission analysis ----
-section("READMISSION ANALYSIS")
-readmit_rate <- mean(patients$readmitted) * 100
-cat(sprintf("Overall readmission rate: %.1f%%\n", readmit_rate))
+Run it:
 
-dept_readmit <- tapply(patients$readmitted, patients$department, mean) * 100
-dept_readmit <- sort(dept_readmit, decreasing = TRUE)
-cat("\nBy department:\n")
-for (dept in names(dept_readmit)) {
-  bar <- strrep("█", round(dept_readmit[dept] / 2))
-  cat(sprintf("  %-15s : %5.1f%%  %s\n", dept, dept_readmit[dept], bar))
-}
+```
+Rscript analyze.R employees.csv --group=dept --stat=mean,sd
+```
 
-# ---- Cost outliers ----
-section("COST OUTLIERS")
-q1 <- quantile(patients$cost, 0.25)
-q3 <- quantile(patients$cost, 0.75)
-iqr <- q3 - q1
-outlier_threshold <- q3 + 1.5 * iqr
+Output:
+```
+Read 5 rows × 4 columns from employees.csv
+Grouped by: dept
 
-outliers <- patients[patients$cost > outlier_threshold, 
-                     c("id", "department", "los_days", "cost")]
-outliers <- outliers[order(-outliers$cost), ]
-cat(sprintf("Patients with cost > $%s (Q3 + 1.5×IQR):\n",
-            formatC(outlier_threshold, format="d", big.mark=",")))
-for (i in seq_len(min(5, nrow(outliers)))) {
-  cat(sprintf("  %s  %-15s  %d days  $%s\n",
-              outliers$id[i],
-              outliers$department[i],
-              outliers$los_days[i],
-              formatC(outliers$cost[i], format="d", big.mark=",")))
-}
+--- salary by dept ---
+  Engineering          : n=2   mean=83500.00  sd=16263.46
+  HR                   : n=1   mean=55000.00  sd=0.00
+  Sales                : n=2   mean=65500.00  sd=24748.74
 ```
 
 ---
@@ -279,11 +310,11 @@ for (i in seq_len(min(5, nrow(outliers)))) {
 With the `patients` dataset:
 - Find all patients over 60 in Cardiology
 - Add a `cost_per_day` column (cost / los_days)
-- Find the 5 patients with the highest cost_per_day
+- Find the 5 patients with highest cost_per_day
 
 **2. Merge practice**
 
-Create a `treatments` data frame with columns `id` and `treatment` (random). Merge it with `patients`. Find the most common treatment for each department.
+Create a `treatments` data frame with columns `id` and `treatment`. Merge with `patients`. Find the most common treatment per department.
 
 **3. Group statistics**
 
@@ -291,10 +322,30 @@ Using `aggregate`, compute for each department:
 - Mean, median, min, max of `cost`
 - Standard deviation of `los_days`
 
-**4. Reshape for reporting**
+**4. Two-way table**
 
-Create a 2-way table showing readmission rate by department and gender. (Hint: `tapply(readmitted, list(department, gender), mean)`)
+Create a readmission rate table by department and gender:
+```r
+tapply(patients$readmitted, list(patients$department, patients$gender), mean)
+```
+
+**5. The growing program (do this one)**
+
+Add `--group` to `analyze.R`. When grouping, compute stats for *all* numeric columns, not just one. The output should look like:
+
+```
+--- salary by dept ---
+  Engineering : n=2  mean=83500  sd=16263
+  HR          : n=1  mean=55000  sd=NA
+  Sales       : n=2  mean=65500  sd=24749
+
+--- years by dept ---
+  Engineering : n=2  mean=2.5    sd=0.71
+  ...
+```
+
+In Chapter 9, we'll add a config system to control which statistics are computed and how the output is formatted, without changing the main program logic.
 
 ---
 
-*Next: Chapter 9 — Lists and Environments: flexible containers*
+*Next: Chapter 9 — Lists and Environments: a config system*

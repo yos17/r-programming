@@ -4,6 +4,14 @@
 
 ---
 
+## Where We Left Off
+
+`analyze.R` can read a filename argument and do unit conversions. It still can't read the file or filter data. Let's fix the filtering part — teach it to include or exclude rows based on a condition.
+
+But first: to filter, we need to decide. To decide, we need `if`.
+
+---
+
 ## if / else if / else
 
 ```r
@@ -136,7 +144,7 @@ day_type <- function(day) {
     Friday    = "weekday",
     Saturday  = ,
     Sunday    = "weekend",
-    "unknown"    # default (no name = default)
+    "unknown"    # default
   )
 }
 
@@ -145,93 +153,115 @@ cat(day_type("Saturday"), "\n")  # weekend
 cat(day_type("Holiday"),  "\n")  # unknown
 ```
 
-Empty cases fall through to the next non-empty case (like the Monday–Friday chain above).
+Empty cases fall through to the next non-empty case.
 
 ---
 
-## Program: Number Guessing Game
+## The Filtering Problem
+
+We want to filter rows of data. Here's some fake data as parallel vectors (we'll use real data frames in Chapter 8):
 
 ```r
-# guess.R
-# A number guessing game
+names   <- c("Alice", "Bob", "Carol", "Dave", "Eve")
+salaries <- c(72000, 48000, 95000, 55000, 83000)
+depts   <- c("Engineering", "Sales", "Engineering", "HR", "Sales")
+```
 
-set.seed(NULL)  # use random seed
-secret <- sample(1:100, 1)
-attempts <- 0
-max_attempts <- 7
+**The loop way** (wrong way first — so you understand what's slow):
 
-cat("I'm thinking of a number between 1 and 100.\n")
-cat("You have", max_attempts, "attempts.\n\n")
-
-for (attempt in 1:max_attempts) {
-  guess <- as.integer(readline("Your guess: "))
-  
-  if (is.na(guess)) {
-    cat("Please enter a number.\n")
-    next
-  }
-  
-  attempts <- attempts + 1
-  
-  if (guess == secret) {
-    cat("\nCorrect! You got it in", attempts, "attempt(s).\n")
-    break
-  } else if (guess < secret) {
-    cat("Too low! ")
-  } else {
-    cat("Too high! ")
-  }
-  
-  remaining <- max_attempts - attempt
-  if (remaining > 0) {
-    cat(remaining, "attempt(s) remaining.\n")
-  } else {
-    cat("\nOut of attempts! The answer was", secret, "\n")
+```r
+# Loop over every row and check the condition
+for (i in seq_along(names)) {
+  if (salaries[i] > 60000) {
+    cat(sprintf("  %s: $%d\n", names[i], salaries[i]))
   }
 }
 ```
 
-Run this in the Console (`source("guess.R")`), not with `Ctrl+Shift+Enter` — you need interactive input.
+Output:
+```
+  Alice: $72000
+  Carol: $95000
+  Eve: $83000
+```
 
-`readline()` reads a line from the user. `sample(1:100, 1)` picks one random number from 1 to 100.
+It works. But loops are slow in R and verbose. We'll show a better way in Chapter 5.
 
 ---
 
-## Nested Loops: Multiplication Table
+## Parsing a Filter String
+
+The tool will accept filters like `"salary>50000"` on the command line. We need to parse that string into a comparison:
 
 ```r
-# times_table.R
+parse_filter <- function(filter_str) {
+  # Match patterns like "salary>50000", "dept==Engineering", "age<=30"
+  m <- regmatches(filter_str,
+         regexpr("^(\\w+)(==|!=|>=|<=|>|<)(.+)$", filter_str))
+  
+  if (length(m) == 0) stop(paste("Invalid filter:", filter_str))
+  
+  parts <- regmatches(filter_str,
+             regexec("^(\\w+)(==|!=|>=|<=|>|<)(.+)$", filter_str))[[1]]
+  
+  list(
+    column = parts[2],
+    op     = parts[3],
+    value  = parts[4]
+  )
+}
 
-n <- 10
+f <- parse_filter("salary>50000")
+cat("Column:", f$column, "\n")
+cat("Op:    ", f$op,     "\n")
+cat("Value: ", f$value,  "\n")
+```
 
-# Header row
-cat(sprintf("%4s", ""))
-for (j in 1:n) cat(sprintf("%4d", j))
-cat("\n")
+Output:
+```
+Column: salary
+Op:     >
+Value:  50000
+```
 
-# Separator
-cat(strrep("-", 4 * (n + 1)), "\n")
+---
 
-# Table body
-for (i in 1:n) {
-  cat(sprintf("%3d|", i))
-  for (j in 1:n) {
-    cat(sprintf("%4d", i * j))
+## apply_filter(): Deciding Row by Row
+
+Now we use `if/else` to apply the operator:
+
+```r
+apply_filter <- function(col_values, op, threshold) {
+  threshold_num <- suppressWarnings(as.numeric(threshold))
+  
+  if (!is.na(threshold_num)) {
+    # Numeric comparison
+    switch(op,
+      ">"  = col_values > threshold_num,
+      "<"  = col_values < threshold_num,
+      ">=" = col_values >= threshold_num,
+      "<=" = col_values <= threshold_num,
+      "==" = col_values == threshold_num,
+      "!=" = col_values != threshold_num,
+      stop(paste("Unknown operator:", op))
+    )
+  } else {
+    # String comparison
+    switch(op,
+      "==" = col_values == threshold,
+      "!=" = col_values != threshold,
+      stop(paste("String comparison only supports == and !="))
+    )
   }
-  cat("\n")
+}
+
+# Test it
+keep <- apply_filter(salaries, ">", "60000")
+cat("Employees earning over $60k:\n")
+for (i in which(keep)) {
+  cat(sprintf("  %s ($%d)\n", names[i], salaries[i]))
 }
 ```
-
-Output (first few rows):
-```
-        1   2   3   4   5   6   7   8   9  10
-----------------------------------------
-   1|   1   2   3   4   5   6   7   8   9  10
-   2|   2   4   6   8  10  12  14  16  18  20
-   3|   3   6   9  12  15  18  21  24  27  30
-```
-
-`strrep(x, n)` repeats string `x` n times.
 
 ---
 
@@ -240,7 +270,7 @@ Output (first few rows):
 R has a reputation for slow loops. The R way is often to avoid explicit loops and use vectorized operations instead:
 
 ```r
-# Slow loop (R style — avoid for large data)
+# Slow loop
 total <- 0
 for (i in 1:1000000) total <- total + i
 
@@ -248,19 +278,16 @@ for (i in 1:1000000) total <- total + i
 total <- sum(1:1000000)
 ```
 
-Both give the same result. The vectorized version is ~100x faster.
-
-You'll see more of this in Chapters 5 and 10. For now, loops are fine for learning — just know there's usually a vectorized alternative.
+Same result. The vectorized version is ~100x faster. You'll see this in Chapter 5. For now, loops are fine for learning — just know the better way exists.
 
 ---
 
-## Program: FizzBuzz
+## FizzBuzz
 
-The classic:
+The classic, two ways:
 
 ```r
-# fizzbuzz.R
-
+# Loop version
 for (i in 1:100) {
   if (i %% 15 == 0) {
     cat("FizzBuzz\n")
@@ -285,14 +312,13 @@ result <- ifelse(x %% 15 == 0, "FizzBuzz",
 cat(result, sep = "\n")
 ```
 
-Both produce the same output. The second version runs as a single vectorized operation.
+Same output. The second version runs as one vectorized operation — no explicit loop.
 
 ---
 
-## Program: Prime Sieve (Sieve of Eratosthenes)
+## Prime Sieve
 
 ```r
-# primes.R
 # Find all primes up to n using the Sieve of Eratosthenes
 
 sieve <- function(n) {
@@ -304,34 +330,84 @@ sieve <- function(n) {
   i <- 2
   while (i * i <= n) {
     if (is_prime[i]) {
-      # Mark all multiples of i as not prime
       multiples <- seq(i * i, n, by = i)
       is_prime[multiples] <- FALSE
     }
     i <- i + 1
   }
   
-  return(which(is_prime))
+  which(is_prime)
 }
 
 primes <- sieve(100)
 cat("Primes up to 100:\n")
 cat(primes, "\n")
-cat("\nCount:", length(primes), "\n")
+cat("Count:", length(primes), "\n")
+```
+
+New: `rep(TRUE, n)` creates a vector of n TRUEs. `seq(from, to, by)` generates a sequence with step. `which()` returns indices where condition is TRUE.
+
+---
+
+## analyze.R: Chapter 3 Version
+
+What changed: added `--filter` argument parsing. The filter logic works on fake inline data for now — real CSV reading comes in Chapter 7.
+
+```r
+# analyze.R — Chapter 3
+# Usage: Rscript analyze.R <file.csv> [--filter "col>value"]
+
+args <- commandArgs(trailingOnly = TRUE)
+
+if (length(args) < 1) {
+  cat("Usage: Rscript analyze.R <file.csv> [--filter 'col>value']\n")
+  quit(status = 1)
+}
+
+filename <- args[1]
+
+if (!file.exists(filename)) {
+  cat("Error: file not found:", filename, "\n")
+  quit(status = 1)
+}
+
+cat("analyze.R\n")
+cat("File:", filename, "\n")
+
+# Parse --filter argument
+filter_arg <- grep("^--filter=", args, value = TRUE)
+if (length(filter_arg) > 0) {
+  filter_str <- sub("^--filter=", "", filter_arg)
+  
+  # Parse: column, operator, value
+  parts <- regmatches(filter_str,
+             regexec("^(\\w+)(==|!=|>=|<=|>|<)(.+)$", filter_str))[[1]]
+  
+  if (length(parts) == 4) {
+    col_name  <- parts[2]
+    op        <- parts[3]
+    threshold <- parts[4]
+    cat(sprintf("Filter: %s %s %s\n", col_name, op, threshold))
+  } else {
+    cat("Warning: could not parse filter:", filter_str, "\n")
+  }
+}
+```
+
+Run it:
+
+```
+Rscript analyze.R data.csv --filter=salary>50000
 ```
 
 Output:
 ```
-Primes up to 100:
-2 3 5 7 11 13 17 19 23 29 31 37 41 43 47 53 59 61 67 71 73 79 83 89 97
-
-Count: 25
+analyze.R
+File: data.csv
+Filter: salary > 50000
 ```
 
-This introduces:
-- `rep(TRUE, n)` — creates a vector of n TRUEs
-- `seq(from, to, by)` — generates a sequence with step
-- `which(is_prime)` — returns indices where condition is TRUE
+The filter is parsed. We'll actually apply it once we have data to filter.
 
 ---
 
@@ -340,51 +416,42 @@ This introduces:
 **1. Grade classifier**
 
 Write a function `grade(score)` that returns:
-- "A" for 90–100
-- "B" for 80–89
-- "C" for 70–79
-- "D" for 60–69
-- "F" for below 60
+- "A" for 90–100, "B" for 80–89, "C" for 70–79, "D" for 60–69, "F" for below 60
 
 Test it: `grade(95)`, `grade(82)`, `grade(70)`, `grade(55)`
 
 **2. Collatz sequence**
 
 The Collatz conjecture: starting from any positive integer n:
-- if n is even: n = n / 2
-- if n is odd: n = 3n + 1
-- repeat until n = 1
+- if n is even: n = n / 2; if n is odd: n = 3n + 1; repeat until n = 1
 
-Write a `collatz(n)` function that returns the full sequence. How long is the sequence starting from 27?
+Write `collatz(n)` that returns the full sequence. How long is the sequence starting from 27?
 
 **3. Sum of digits**
 
-Write a function `digit_sum(n)` that computes the sum of digits of a positive integer. (Hint: `%% 10` gives the last digit, `%/% 10` removes the last digit.) `digit_sum(12345)` should return 15.
+Write `digit_sum(n)` that computes the sum of digits of a positive integer.
+(`%% 10` gives the last digit, `%/% 10` removes the last digit.)
+`digit_sum(12345)` should return 15.
 
-**4. Pattern printing**
+**4. Vectorized FizzBuzz**
 
-Use nested loops to print:
-```
-*
-**
-***
-****
-*****
-****
-***
-**
-*
-```
+The vectorized FizzBuzz above uses nested `ifelse`. Write a different version: start with `as.character(1:100)`, then replace positions divisible by 3 with "Fizz", divisible by 5 with "Buzz", divisible by 15 with "FizzBuzz".
 
 **5. Prime factorization**
 
 Write `factorize(n)` that returns the prime factors of n.
 `factorize(360)` should return `2 2 2 3 3 5`.
 
-**6. Vectorized fizzbuzz**
+**6. The growing program (do this one)**
 
-The vectorized FizzBuzz above uses nested `ifelse`. Write a different version using R's string operations: build a character vector where you start with `as.character(1:100)`, then replace positions divisible by 3 with "Fizz", divisible by 5 with "Buzz", divisible by 15 with "FizzBuzz".
+Extend `apply_filter()` so it handles multiple conditions joined by `&`:
+
+```
+--filter=salary>50000&dept==Engineering
+```
+
+Split on `&`, parse each condition separately, combine the logical vectors with `&`. This multi-filter will be essential in Chapters 7 and 8.
 
 ---
 
-*Next: Chapter 4 — Functions: writing your own*
+*Next: Chapter 4 — Functions: extract the statistics logic into reusable pieces*
