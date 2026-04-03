@@ -414,3 +414,221 @@ In Chapter 8, we add `--group` to group rows by a categorical column and compute
 ---
 
 *Next: Chapter 8 — Data Frames: group and aggregate*
+
+---
+
+## Solutions
+
+### Exercise 1 — Sales data pipeline
+
+```r
+# Generate 100 rows of sales data
+set.seed(42)
+n <- 100
+sales <- data.frame(
+  date     = seq(as.Date("2026-01-01"), by = "day", length.out = n)[sample(n)],
+  product  = sample(c("Widget","Gadget","Doohickey"), n, replace = TRUE),
+  quantity = sample(1:20, n, replace = TRUE),
+  price    = round(runif(n, 5, 100), 2),
+  stringsAsFactors = FALSE
+)
+sales$date    <- as.character(sales$date)   # store as string for CSV round-trip
+
+write.csv(sales, "sales.csv", row.names = FALSE)
+
+# Read it back
+df <- read.csv("sales.csv", stringsAsFactors = FALSE)
+df$revenue <- df$quantity * df$price
+
+# Total revenue by product
+cat("Revenue by product:\n")
+rev_by_product <- tapply(df$revenue, df$product, sum)
+for (p in sort(names(rev_by_product))) {
+  cat(sprintf("  %-12s : $%.2f\n", p, rev_by_product[p]))
+}
+
+# Daily total revenue
+daily_rev <- tapply(df$revenue, df$date, sum)
+daily_rev <- sort(daily_rev, decreasing = TRUE)
+
+cat("\nTop 3 revenue days:\n")
+for (i in 1:3) {
+  cat(sprintf("  %s : $%.2f\n", names(daily_rev)[i], daily_rev[i]))
+}
+```
+
+### Exercise 2 — Log file parser
+
+```r
+# Generate a fake web server log
+set.seed(1)
+n_lines <- 50
+urls <- c("/index.html","/about.html","/contact.html","/api/data","/missing.html")
+statuses <- sample(c(200,200,200,301,404,500), n_lines, replace = TRUE)
+timestamps <- format(
+  as.POSIXct("2026-03-15 10:00:00") + cumsum(sample(1:10, n_lines, replace = TRUE)),
+  "%Y-%m-%d %H:%M:%S"
+)
+log_lines <- sprintf("%s GET %s %d %d",
+  timestamps,
+  sample(urls, n_lines, replace = TRUE),
+  statuses,
+  sample(500:5000, n_lines, replace = TRUE))
+
+writeLines(log_lines, "server.log")
+
+# Parse the log
+parse_log <- function(log_file) {
+  lines <- readLines(log_file)
+
+  # Extract fields with regex
+  # Format: DATETIME METHOD URL STATUS BYTES
+  pat <- "^(\\S+ \\S+) (\\w+) (\\S+) (\\d+) (\\d+)$"
+  parsed <- lapply(lines, function(l) {
+    m <- regmatches(l, regexec(pat, l))[[1]]
+    if (length(m) == 0) return(NULL)
+    list(ts = m[2], method = m[3], url = m[4],
+         status = as.integer(m[5]), bytes = as.integer(m[6]))
+  })
+  parsed <- Filter(Negate(is.null), parsed)
+
+  status_codes <- sapply(parsed, `[[`, "status")
+  urls_req     <- sapply(parsed, `[[`, "url")
+
+  cat(sprintf("Total requests: %d\n\n", length(parsed)))
+
+  cat("Requests by status code:\n")
+  for (sc in sort(unique(status_codes))) {
+    cat(sprintf("  %d : %d\n", sc, sum(status_codes == sc)))
+  }
+
+  cat("\nMost requested URLs:\n")
+  freq <- sort(table(urls_req), decreasing = TRUE)
+  for (i in seq_len(min(5, length(freq)))) {
+    cat(sprintf("  %-20s : %d\n", names(freq)[i], freq[i]))
+  }
+
+  n_errors <- sum(status_codes >= 400)
+  cat(sprintf("\nErrors (4xx/5xx): %d\n", n_errors))
+}
+
+parse_log("server.log")
+```
+
+### Exercise 3 — CSV round-trip
+
+```r
+# Create a data frame with various types
+original <- data.frame(
+  integer_col = 1L:5L,
+  double_col  = c(1.0, 1.23456789, pi, exp(1), sqrt(2)),
+  string_col  = c("hello", "world", "foo", "bar", "baz"),
+  logical_col = c(TRUE, FALSE, TRUE, TRUE, FALSE),
+  stringsAsFactors = FALSE
+)
+
+write.csv(original, "roundtrip.csv", row.names = FALSE)
+restored <- read.csv("roundtrip.csv", stringsAsFactors = FALSE)
+
+# Compare
+cat("Identical integers? ", identical(original$integer_col, restored$integer_col), "\n")
+# FALSE: original is integer class, restored is numeric (double)
+
+cat("Equal doubles?      ", all.equal(original$double_col,  restored$double_col),  "\n")
+# TRUE: doubles survive the round-trip accurately (R uses 15 sig figures by default)
+
+cat("Identical strings?  ", identical(original$string_col,  restored$string_col),  "\n")
+# TRUE
+
+cat("Identical logicals? ", identical(original$logical_col, restored$logical_col), "\n")
+# TRUE
+
+# Finding differences:
+# - Integers become doubles after read.csv (class changes, values identical)
+# - Very long doubles may lose precision if write.csv uses fewer digits
+# Fix: write.csv(..., digits = 22) to preserve full precision
+```
+
+### Exercise 4 — Multi-file batch
+
+```r
+# Generate 5 monthly CSV files
+set.seed(99)
+for (month in 1:5) {
+  n <- sample(30:50, 1)
+  df <- data.frame(
+    month    = month,
+    product  = sample(c("A","B","C"), n, replace = TRUE),
+    sales    = round(runif(n, 100, 1000), 2),
+    stringsAsFactors = FALSE
+  )
+  write.csv(df, sprintf("month_%02d.csv", month), row.names = FALSE)
+}
+
+# Read all monthly files and combine
+files <- list.files(".", pattern = "^month_\\d+\\.csv$")
+cat("Found files:", paste(files, collapse=", "), "\n")
+
+dfs <- lapply(files, read.csv, stringsAsFactors = FALSE)
+combined <- do.call(rbind, dfs)
+
+cat(sprintf("Combined: %d rows\n", nrow(combined)))
+
+write.csv(combined, "all_months.csv", row.names = FALSE)
+cat("Written to all_months.csv\n")
+
+# Quick summary
+cat("\nTotal sales by product:\n")
+print(tapply(combined$sales, combined$product, sum))
+```
+
+### Exercise 5 — The growing program (`--output` support)
+
+Add `--output` argument to `analyze.R` to write the report to a file using `sink()`:
+
+```r
+# --- Addition to analyze.R (Chapter 7) ---
+
+# Parse --output argument
+output_file <- NULL
+output_arg  <- grep("^--output=", args, value = TRUE)
+if (length(output_arg) > 0) {
+  output_file <- sub("^--output=", "", output_arg[1])
+}
+
+# Helper: run a block, writing output to file if requested
+write_report <- function(output_file, report_fn) {
+  if (!is.null(output_file)) {
+    sink(output_file)
+    on.exit(sink(), add = TRUE)   # restore even if error occurs
+  }
+  report_fn()
+}
+
+# Usage: wrap the entire output section
+write_report(output_file, function() {
+  cat("=== Analysis Report ===\n")
+  cat(sprintf("File: %s\n", filename))
+  cat(sprintf("Rows: %d | Columns: %d\n\n", nrow(df), ncol(df)))
+
+  for (col in names(df)) {
+    x <- df[[col]]
+    if (!is.numeric(x)) next
+    s <- compute_stats(x[!is.na(x)], req_stats)
+    cat(sprintf("--- %s ---\n", col))
+    for (nm in names(s)) cat(sprintf("  %-8s = %.4f\n", nm, s[[nm]]))
+    cat("\n")
+  }
+})
+
+if (!is.null(output_file)) {
+  cat(sprintf("Report written to %s\n", output_file))
+}
+
+# Rscript analyze.R employees.csv --output=report.txt
+# cat report.txt
+# === Analysis Report ===
+# File: employees.csv
+# Rows: 5 | Columns: 4
+# ...
+```

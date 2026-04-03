@@ -475,3 +475,211 @@ Run `analyze.R` on it. Does it give correct output? What breaks?
 ---
 
 *Next: Chapter 13 — Debugging: break analyze.R three ways and fix it*
+
+---
+
+## Solutions
+
+### Exercise 1 — Add a `--plot` flag
+
+```r
+# --- Addition to analyze.R (Chapter 12) ---
+# Place after the report() call. Requires only base R (no ggplot2 needed).
+
+plot_file <- NULL
+plot_arg  <- grep("^--plot=", args, value = TRUE)
+if (length(plot_arg) > 0) plot_file <- sub("^--plot=", "", plot_arg[1])
+
+if (!is.null(plot_file)) {
+  pdf(plot_file)
+
+  # For each numeric column with grouping, make a bar chart of group means
+  if (!is.null(config$group) && config$group %in% names(df_all)) {
+    num_cols <- names(df_all)[sapply(df_all, is.numeric)]
+    for (col in num_cols) {
+      group_means <- tapply(df_all[[col]], df_all[[config$group]], mean, na.rm=TRUE)
+      group_means <- sort(group_means, decreasing = TRUE)
+      barplot(
+        group_means,
+        main  = sprintf("Mean %s by %s", col, config$group),
+        ylab  = col,
+        xlab  = config$group,
+        col   = "steelblue",
+        las   = 2,
+        cex.names = 0.85
+      )
+    }
+  } else {
+    # No grouping: histogram of each numeric column
+    num_cols <- names(df_all)[sapply(df_all, is.numeric)]
+    for (col in num_cols) {
+      hist(df_all[[col]][!is.na(df_all[[col]])],
+           main = sprintf("Distribution of %s", col),
+           xlab = col, col = "steelblue", border = "white")
+    }
+  }
+
+  dev.off()
+  cat(sprintf("Plot written to %s\n", plot_file))
+}
+
+# Usage:
+# Rscript analyze.R employees.csv --group=dept --plot=report.pdf
+```
+
+### Exercise 2 — CSV output format
+
+```r
+# --- Addition to analyze.R (Chapter 12) ---
+# When --format=csv, write results as a tidy CSV instead of text.
+
+output_format <- config$output$format   # "text" or "csv"
+
+if (output_format == "csv" && !is.null(config$output$file)) {
+  # Convert results list to a tidy data frame
+  rows <- list()
+  for (col in names(ds$results)) {
+    res <- ds$results[[col]]
+    if (is.array(res)) {
+      # Grouped results
+      for (grp in names(res)) {
+        for (stat_name in names(res[[grp]])) {
+          rows[[length(rows) + 1]] <- data.frame(
+            column = col,
+            group  = grp,
+            stat   = stat_name,
+            value  = as.numeric(res[[grp]][[stat_name]]),
+            stringsAsFactors = FALSE
+          )
+        }
+      }
+    } else {
+      for (stat_name in names(res)) {
+        rows[[length(rows) + 1]] <- data.frame(
+          column = col,
+          group  = NA_character_,
+          stat   = stat_name,
+          value  = as.numeric(res[[stat_name]]),
+          stringsAsFactors = FALSE
+        )
+      }
+    }
+  }
+
+  results_df <- do.call(rbind, rows)
+  write.csv(results_df, config$output$file, row.names = FALSE)
+  cat(sprintf("CSV results written to %s\n", config$output$file))
+}
+
+# Usage:
+# Rscript analyze.R employees.csv --group=dept --format=csv --output=results.csv
+# The CSV will have columns: column, group, stat, value
+```
+
+### Exercise 3 — Add `--head=10` flag
+
+```r
+# --- Addition to analyze.R (Chapter 12) ---
+# Show the first N rows of the filtered data before running stats.
+
+head_arg <- grep("^--head=", args, value = TRUE)
+if (length(head_arg) > 0) {
+  n_head <- as.integer(sub("^--head=", "", head_arg[1]))
+  if (is.na(n_head) || n_head < 1) {
+    cat("Warning: invalid --head value, using 10\n")
+    n_head <- 10
+  }
+
+  cat(sprintf("\n--- First %d rows ---\n", n_head))
+  preview <- head(df_all, n_head)
+  # Format as a simple table
+  col_widths <- sapply(names(preview), function(cn) {
+    max(nchar(cn), max(nchar(as.character(preview[[cn]])), na.rm=TRUE))
+  })
+  # Header
+  header <- paste(mapply(formatC, names(preview), col_widths, MoreArgs=list(flag="-")), collapse="  ")
+  cat(header, "\n")
+  cat(strrep("-", nchar(header)), "\n")
+  for (i in seq_len(nrow(preview))) {
+    row <- paste(mapply(formatC, as.character(unlist(preview[i,])), col_widths, MoreArgs=list(flag="-")), collapse="  ")
+    cat(row, "\n")
+  }
+  cat("\n")
+}
+
+# Usage:
+# Rscript analyze.R employees.csv --head=5
+```
+
+### Exercise 4 — Add `--describe` flag
+
+```r
+# --- Addition to analyze.R (Chapter 12) ---
+# When --describe is present, print a per-column type/NA/range summary first.
+
+if ("--describe" %in% args) {
+  cat(sprintf("\n--- Column descriptions (%d rows × %d cols) ---\n",
+              nrow(df_all), ncol(df_all)))
+
+  for (col in names(df_all)) {
+    x     <- df_all[[col]]
+    n_na  <- sum(is.na(x))
+    pct   <- 100 * n_na / length(x)
+
+    if (is.numeric(x)) {
+      x_clean <- x[!is.na(x)]
+      cat(sprintf("  %-15s  [numeric]    min=%-10.2f mean=%-10.2f max=%-10.2f  NAs=%d (%.0f%%)\n",
+                  col, min(x_clean), mean(x_clean), max(x_clean), n_na, pct))
+    } else {
+      n_unique <- length(unique(x[!is.na(x)]))
+      top_val  <- names(sort(table(x), decreasing=TRUE))[1]
+      cat(sprintf("  %-15s  [character]  %d unique  top='%s'  NAs=%d (%.0f%%)\n",
+                  col, n_unique, top_val, n_na, pct))
+    }
+  }
+  cat("\n")
+}
+
+# Usage:
+# Rscript analyze.R employees.csv --describe --group=dept --stat=mean
+```
+
+### Exercise 5 — Run on real data (`mtcars` and `iris`)
+
+```r
+# Write built-in datasets to CSV files
+write.csv(mtcars, "mtcars.csv")
+write.csv(iris,   "iris.csv")
+```
+
+```
+# Run on mtcars:
+Rscript analyze.R mtcars.csv --stat=n,mean,sd
+
+# Run on iris grouped by Species:
+Rscript analyze.R iris.csv --group=Species --stat=n,mean,sd
+```
+
+Key things to check / potential issues:
+
+```r
+# 1. mtcars has a row-names column when written with default write.csv()
+#    The "" column (row names) will be read back as a character column.
+#    Fix: write with row.names = FALSE
+write.csv(mtcars, "mtcars.csv", row.names = FALSE)
+
+# 2. iris column names contain dots: "Sepal.Length", "Petal.Width", etc.
+#    The filter regex ^\w+ only matches word characters (letters/digits/_).
+#    A dot in a column name like --filter=Sepal.Length>5 won't parse.
+#    Fix: expand the column-name pattern in parse_filter() to allow dots:
+parse_filter <- function(filter_str) {
+  parts <- regmatches(filter_str,
+             regexec("^([\\w.]+)(==|!=|>=|<=|>|<|!~|~)(.+)$", filter_str,
+                     perl = TRUE))[[1]]
+  if (length(parts) != 4) stop(paste("Invalid filter:", filter_str))
+  list(column = parts[2], op = parts[3], value = parts[4])
+}
+
+# Now --filter=Sepal.Length>5 works on iris.
+# With that fix both datasets produce correct, clean output.
+```

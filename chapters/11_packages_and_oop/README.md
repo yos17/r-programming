@@ -373,3 +373,227 @@ This is the final piece before Chapter 12: the tool can save its state, so you c
 ---
 
 *Next: Chapter 12 — The finished tool: 150 lines, does everything*
+
+---
+
+## Solutions
+
+### Exercise 1 — Extend the Dog class
+
+```r
+# Constructor (from chapter)
+new_dog <- function(name, breed, age) {
+  structure(list(name=name, breed=breed, age=age, health=100),
+            class = "Dog")
+}
+
+# Existing methods
+print.Dog <- function(x, ...) {
+  cat(sprintf("Dog: %s (%s), age %d, health %d\n",
+              x$name, x$breed, x$age, x$health))
+  invisible(x)
+}
+
+speak <- function(x, ...) UseMethod("speak")
+speak.Dog <- function(x, ...) cat(x$name, "says: Woof!\n")
+
+# --- New: feed generic ---
+feed <- function(x, ...) UseMethod("feed")
+feed.Dog <- function(x, amount = 10, ...) {
+  x$health <- min(100, x$health + amount)   # cap at 100
+  cat(sprintf("%s was fed. Health: %d\n", x$name, x$health))
+  invisible(x)
+}
+
+# --- New: compare two dogs by age ---
+compare <- function(a, b, ...) UseMethod("compare")
+compare.Dog <- function(a, b, ...) {
+  if (a$age > b$age)      cat(sprintf("%s is older than %s\n",  a$name, b$name))
+  else if (a$age < b$age) cat(sprintf("%s is younger than %s\n", a$name, b$name))
+  else                    cat(sprintf("%s and %s are the same age\n", a$name, b$name))
+  invisible(list(a=a, b=b))
+}
+
+# --- New: format.Dog so paste() works ---
+format.Dog <- function(x, ...) {
+  sprintf("%s the %s (age %d)", x$name, x$breed, x$age)
+}
+
+# Tests
+rex   <- new_dog("Rex",   "German Shepherd", 5)
+buddy <- new_dog("Buddy", "Golden Retriever", 3)
+
+print(rex)
+feed(rex, 5)
+compare(rex, buddy)
+paste("My dog is", format(rex))   # "My dog is Rex the German Shepherd (age 5)"
+```
+
+### Exercise 2 — S3 arithmetic (Money class)
+
+```r
+new_money <- function(amount, currency = "USD") {
+  if (!is.numeric(amount)) stop("amount must be numeric")
+  structure(list(amount=amount, currency=toupper(currency)), class="Money")
+}
+
+print.Money <- function(x, ...) {
+  cat(sprintf("Money: %.2f %s\n", x$amount, x$currency))
+  invisible(x)
+}
+
+`+.Money` <- function(a, b) {
+  if (!inherits(b, "Money")) stop("Can only add Money to Money")
+  if (a$currency != b$currency)
+    stop(sprintf("Currency mismatch: %s != %s", a$currency, b$currency))
+  new_money(a$amount + b$amount, a$currency)
+}
+
+`-.Money` <- function(a, b) {
+  if (!inherits(b, "Money")) stop("Can only subtract Money from Money")
+  if (a$currency != b$currency)
+    stop(sprintf("Currency mismatch: %s != %s", a$currency, b$currency))
+  new_money(a$amount - b$amount, a$currency)
+}
+
+`==.Money` <- function(a, b) {
+  inherits(b, "Money") && a$currency == b$currency && a$amount == b$amount
+}
+
+# Tests
+m1 <- new_money(100, "USD")
+m2 <- new_money(50,  "USD")
+m1 + m2     # Money: 150.00 USD
+m1 - m2     # Money: 50.00 USD
+
+# Currency mismatch should error:
+m3 <- new_money(80, "EUR")
+tryCatch(m1 + m3, error = function(e) cat("Error caught:", e$message, "\n"))
+# Error caught: Currency mismatch: USD != EUR
+```
+
+### Exercise 3 — Write a package (outline)
+
+Creating a minimal R package requires a few files. Here is the complete minimal structure:
+
+```r
+# Step 1 — create package skeleton (run in RStudio or R console)
+# usethis::create_package("~/Projects/ranalytics")
+# OR manually create the directory structure:
+
+# ranalytics/
+#   DESCRIPTION
+#   NAMESPACE
+#   R/
+#     stats.R
+
+# --- DESCRIPTION ---
+# Package: ranalytics
+# Title: Command-line data analysis helpers
+# Version: 0.1.0
+# Author: Your Name
+# Description: compute_stats() and describe() from the R Programming course.
+# License: MIT
+
+# --- R/stats.R ---
+
+#' Compute descriptive statistics for a numeric vector
+#'
+#' @param x numeric vector (NAs removed automatically)
+#' @param stats character vector of statistics to compute:
+#'   "n", "mean", "sd", "median", "min", "max", "q1", "q3", "iqr"
+#' @return named list of computed statistics
+#' @export
+#' @examples
+#' compute_stats(c(1,2,3,4,5), c("mean","sd"))
+compute_stats <- function(x, stats = c("n","mean","sd","median","min","max")) {
+  x <- x[!is.na(x)]
+  result <- list()
+  if ("n"      %in% stats) result$n      <- length(x)
+  if ("mean"   %in% stats) result$mean   <- mean(x)
+  if ("sd"     %in% stats) result$sd     <- if (length(x) > 1) sd(x) else NA_real_
+  if ("median" %in% stats) result$median <- median(x)
+  if ("min"    %in% stats) result$min    <- if (length(x)) min(x) else NA_real_
+  if ("max"    %in% stats) result$max    <- if (length(x)) max(x) else NA_real_
+  if ("q1"     %in% stats) result$q1     <- quantile(x, 0.25, names=FALSE)
+  if ("q3"     %in% stats) result$q3     <- quantile(x, 0.75, names=FALSE)
+  if ("iqr"    %in% stats) result$iqr    <- IQR(x)
+  result
+}
+
+#' Print a descriptive summary of a numeric vector
+#'
+#' @param x numeric vector
+#' @param name label shown in the output
+#' @return invisible(x)
+#' @export
+describe <- function(x, name = "x") {
+  s <- compute_stats(x, c("n","mean","sd","median","min","max","q1","q3"))
+  cat(sprintf("\nSummary of %s (%d values):\n", name, s$n))
+  cat(sprintf("  Min:    %8.4f\n", s$min))
+  cat(sprintf("  Q1:     %8.4f\n", s$q1))
+  cat(sprintf("  Median: %8.4f\n", s$median))
+  cat(sprintf("  Mean:   %8.4f\n", s$mean))
+  cat(sprintf("  Q3:     %8.4f\n", s$q3))
+  cat(sprintf("  Max:    %8.4f\n", s$max))
+  cat(sprintf("  SD:     %8.4f\n", s$sd))
+  invisible(x)
+}
+
+# Step 2 — install (from package root directory):
+# install.packages(".", repos = NULL, type = "source")
+# OR in RStudio: Build → Install and Restart
+
+# Step 3 — use:
+# library(ranalytics)
+# compute_stats(c(10, 20, 30), c("mean","sd"))
+```
+
+### Exercise 4 — The growing program (`save_Dataset` / `load_Dataset`)
+
+```r
+# --- Addition to analyze.R (Chapter 11) ---
+
+# These methods serialize the entire Dataset object (data + config + results).
+
+save_Dataset <- function(x, path) {
+  if (!inherits(x, "Dataset")) stop("x must be a Dataset object")
+  saveRDS(x, path)
+  cat(sprintf("Dataset '%s' saved to %s\n", x$name, path))
+  invisible(x)
+}
+
+load_Dataset <- function(path) {
+  if (!file.exists(path)) stop(paste("File not found:", path))
+  x <- readRDS(path)
+  if (!inherits(x, "Dataset")) stop("File does not contain a Dataset object")
+  cat(sprintf("Loaded Dataset '%s' from %s\n", x$name, path))
+  x
+}
+
+# --- Usage example ---
+# (after running the full analyze.R pipeline to produce 'ds')
+
+# Save:
+# ds <- compute(ds)
+# save_Dataset(ds, "analysis.rds")
+# # Dataset 'employees.csv' saved to analysis.rds
+
+# Later — restore without re-reading or re-computing:
+# ds_restored <- load_Dataset("analysis.rds")
+# report(ds_restored)
+
+# Demo (self-contained):
+df_demo <- data.frame(
+  name   = c("Alice","Bob","Carol"),
+  salary = c(72000, 48000, 95000),
+  stringsAsFactors = FALSE
+)
+ds_demo <- new_Dataset(df_demo, "demo")
+ds_demo <- compute(ds_demo)
+save_Dataset(ds_demo, "/tmp/demo_analysis.rds")
+
+ds_back <- load_Dataset("/tmp/demo_analysis.rds")
+print(ds_back)     # Dataset 'demo': 3 rows × 2 columns
+report(ds_back)    # shows the same report as before
+```

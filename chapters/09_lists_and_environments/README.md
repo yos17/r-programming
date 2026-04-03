@@ -371,3 +371,230 @@ In Chapter 10, we'll process *multiple* files at once. The config system makes t
 ---
 
 *Next: Chapter 10 — The Apply Family: process multiple files with lapply/sapply*
+
+---
+
+## Solutions
+
+### Exercise 1 — JSON-like book catalogue
+
+```r
+# Book catalogue as a list of lists
+
+new_book <- function(title, author, year, isbn, price, in_stock = TRUE) {
+  list(title=title, author=author, year=year, isbn=isbn,
+       price=price, in_stock=in_stock)
+}
+
+catalogue <- list(
+  new_book("The R Inferno",      "Patrick Burns",     2011, "978-0000001",  15.99),
+  new_book("Advanced R",         "Hadley Wickham",    2019, "978-0000002",  49.99),
+  new_book("R for Data Science", "Hadley Wickham",    2023, "978-0000003",  39.99),
+  new_book("The Art of R",       "Norman Matloff",    2011, "978-0000004",  35.00, FALSE),
+  new_book("R Packages",         "Hadley Wickham",    2023, "978-0000005",  45.00)
+)
+
+# Add a book
+add_book <- function(cat, ...) c(cat, list(new_book(...)))
+
+# Find books by author
+find_by_author <- function(cat, author) {
+  Filter(function(b) grepl(author, b$author, ignore.case = TRUE), cat)
+}
+
+# Find books under a price threshold
+find_under <- function(cat, max_price) {
+  Filter(function(b) b$price <= max_price, cat)
+}
+
+# Total inventory value (in-stock only)
+inventory_value <- function(cat) {
+  sum(sapply(Filter(function(b) b$in_stock, cat), `[[`, "price"))
+}
+
+# --- Tests ---
+wickham_books <- find_by_author(catalogue, "Wickham")
+cat("Books by Wickham:", length(wickham_books), "\n")
+sapply(wickham_books, `[[`, "title")
+
+cheap <- find_under(catalogue, 40)
+cat("Books under $40:", length(cheap), "\n")
+
+cat(sprintf("Total inventory value: $%.2f\n", inventory_value(catalogue)))
+# Total inventory value: $185.97  (excludes out-of-stock "The Art of R")
+```
+
+### Exercise 2 — Config persistence
+
+```r
+# Save and load config (using saveRDS/readRDS)
+
+save_config <- function(cfg, file) {
+  saveRDS(cfg, file)
+  cat(sprintf("Config saved to %s\n", file))
+  invisible(cfg)
+}
+
+load_config <- function(file) {
+  if (!file.exists(file)) stop(paste("Config file not found:", file))
+  cfg <- readRDS(file)
+  cat(sprintf("Config loaded from %s\n", file))
+  cfg
+}
+
+# set_config: set nested value using dotted key like "analysis.digits"
+set_config <- function(cfg, key, value) {
+  keys <- strsplit(key, "\\.")[[1]]
+  # Recursive descent
+  set_nested <- function(obj, ks, val) {
+    if (length(ks) == 1) {
+      obj[[ks[1]]] <- val
+    } else {
+      obj[[ks[1]]] <- set_nested(obj[[ks[1]]], ks[-1], val)
+    }
+    obj
+  }
+  set_nested(cfg, keys, value)
+}
+
+# --- Usage ---
+cfg <- list(analysis = list(stats = c("mean","sd"), digits = 4),
+            output   = list(file = NULL))
+
+cfg <- set_config(cfg, "analysis.digits", 6)
+cfg <- set_config(cfg, "output.file", "report.txt")
+
+cat("digits:", cfg$analysis$digits, "\n")   # 6
+cat("output:", cfg$output$file,     "\n")   # report.txt
+
+save_config(cfg, "my_config.rds")
+cfg2 <- load_config("my_config.rds")
+identical(cfg, cfg2)   # TRUE
+```
+
+### Exercise 3 — Memoization with environments
+
+```r
+memoize <- function(f) {
+  cache <- new.env(hash = TRUE, parent = emptyenv())
+  function(...) {
+    key <- paste(list(...), collapse = "|")
+    if (exists(key, envir = cache)) {
+      return(get(key, envir = cache))
+    }
+    result <- f(...)
+    assign(key, result, envir = cache)
+    result
+  }
+}
+
+# Test: slow Fibonacci (exponential without memoization)
+fib <- function(n) {
+  if (n <= 1) return(n)
+  fib(n - 1) + fib(n - 2)
+}
+
+fib_memo <- memoize(function(n) {
+  if (n <= 1) return(n)
+  fib_memo(n - 1) + fib_memo(n - 2)
+})
+
+system.time(fib(30))       # ~1–2 seconds
+system.time(fib_memo(30))  # near-instant
+system.time(fib_memo(30))  # instant (cached)
+
+fib_memo(10)  # 55
+fib_memo(20)  # 6765
+```
+
+### Exercise 4 — Stack and queue
+
+```r
+# Stack (LIFO)
+new_stack <- function() list(items = list())
+
+push <- function(s, x) { s$items <- c(s$items, list(x)); s }
+pop  <- function(s) {
+  if (is_empty(s)) stop("Stack is empty")
+  val <- s$items[[length(s$items)]]
+  s$items <- s$items[-length(s$items)]
+  list(value = val, stack = s)
+}
+peek     <- function(s) { if (is_empty(s)) stop("Stack is empty"); s$items[[length(s$items)]] }
+is_empty <- function(s) length(s$items) == 0
+
+# Queue (FIFO)
+new_queue  <- function() list(items = list())
+
+enqueue <- function(q, x) { q$items <- c(q$items, list(x)); q }
+dequeue <- function(q) {
+  if (is_empty(q)) stop("Queue is empty")
+  val <- q$items[[1]]
+  q$items <- q$items[-1]
+  list(value = val, queue = q)
+}
+front <- function(q) { if (is_empty(q)) stop("Queue is empty"); q$items[[1]] }
+
+# --- Tests ---
+s <- new_stack()
+s <- push(s, 10); s <- push(s, 20); s <- push(s, 30)
+cat("peek:", peek(s), "\n")         # 30 (LIFO)
+r <- pop(s); cat("popped:", r$value, "\n")  # 30
+
+q <- new_queue()
+q <- enqueue(q, "first"); q <- enqueue(q, "second"); q <- enqueue(q, "third")
+cat("front:", front(q), "\n")      # "first" (FIFO)
+r <- dequeue(q); cat("dequeued:", r$value, "\n")  # "first"
+```
+
+### Exercise 5 — The growing program (`--config` support)
+
+Add `--config=config.rds` to `analyze.R`. The file-based config is loaded first, then command-line flags override it.
+
+```r
+# --- Addition to analyze.R (Chapter 9) ---
+# Place this block just after defining default_config and merge_config.
+
+args_to_config <- function(args) {
+  override <- list()
+
+  get_val <- function(flag) {
+    m <- grep(paste0("^--", flag, "="), args, value = TRUE)
+    if (length(m) == 0) return(NULL)
+    sub(paste0("^--", flag, "="), "", m[1])
+  }
+
+  if (!is.null(v <- get_val("filter"))) override$filter <- v
+  if (!is.null(v <- get_val("group")))  override$group  <- v
+  if (!is.null(v <- get_val("output"))) override$output <- list(file = v)
+  if (!is.null(v <- get_val("sep")))    override$input  <- list(sep  = v)
+  if (!is.null(v <- get_val("stat")))
+    override$analysis <- list(stats = strsplit(v, ",")[[1]])
+
+  # Start from defaults
+  cfg <- merge_config(default_config, override)
+
+  # Load saved config if --config= was provided, then re-apply overrides on top
+  if (!is.null(cfg_file <- get_val("config"))) {
+    if (!file.exists(cfg_file)) {
+      cat("Warning: config file not found:", cfg_file, "\n")
+    } else {
+      saved_cfg <- readRDS(cfg_file)
+      # saved config < command-line overrides
+      cfg <- merge_config(saved_cfg, override)
+      cat(sprintf("Loaded config from %s\n", cfg_file))
+    }
+  }
+
+  cfg
+}
+
+# --- Demo: save a reusable config ---
+# cfg <- default_config
+# cfg$analysis$stats <- c("mean","sd","n")
+# cfg$group <- "dept"
+# saveRDS(cfg, "payroll_config.rds")
+#
+# Rscript analyze.R employees.csv --config=payroll_config.rds --output=report.txt
+# → Uses group=dept, stats=mean,sd,n from file, output from command line
+```

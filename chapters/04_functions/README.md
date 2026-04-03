@@ -433,3 +433,174 @@ This function will be called in Chapter 5 after we learn vectorized operations �
 ---
 
 *Next: Chapter 5 — Vectors and Arrays: operate on whole columns at once*
+
+---
+
+## Solutions
+
+### Exercise 1 — Temperature converter function
+
+```r
+temp_convert <- function(value, from, to) {
+  valid <- c("C", "F", "K")
+  if (!from %in% valid) stop(paste("Unknown unit:", from, "— use C, F, or K"))
+  if (!to   %in% valid) stop(paste("Unknown unit:", to,   "— use C, F, or K"))
+  if (from == to) return(value)
+
+  # Step 1: convert to Celsius
+  celsius <- switch(from,
+    C = value,
+    F = (value - 32) * 5 / 9,
+    K = value - 273.15
+  )
+
+  # Step 2: convert Celsius to target
+  switch(to,
+    C = celsius,
+    F = celsius * 9 / 5 + 32,
+    K = celsius + 273.15
+  )
+}
+
+temp_convert(100,  "C", "F")   # 212
+temp_convert(32,   "F", "C")   # 0
+temp_convert(0,    "K", "C")   # -273.15
+temp_convert(300,  "K", "F")   # 80.33
+```
+
+### Exercise 2 — String padding
+
+```r
+pad <- function(s, width, side = "right", char = " ") {
+  s <- as.character(s)
+  n <- nchar(s)
+  if (n >= width) return(s)           # already wide enough
+  fill <- strrep(char, width - n)
+  if (side == "right") paste0(s, fill)
+  else if (side == "left")  paste0(fill, s)
+  else if (side == "both") {
+    left_fill  <- strrep(char, floor((width - n) / 2))
+    right_fill <- strrep(char, ceiling((width - n) / 2))
+    paste0(left_fill, s, right_fill)
+  } else stop(paste("Unknown side:", side))
+}
+
+# Format a simple table
+data <- list(
+  list(name = "Alice", score = 92),
+  list(name = "Bob",   score = 78),
+  list(name = "Carol", score = 95)
+)
+
+cat(pad("Name",  10), pad("Score", 6, "left"), "\n")
+cat(strrep("-", 16), "\n")
+for (row in data) {
+  cat(pad(row$name, 10), pad(row$score, 6, "left"), "\n")
+}
+# Name       Score
+# ----------------
+# Alice         92
+# Bob           78
+# Carol         95
+```
+
+### Exercise 3 — Running statistics
+
+```r
+running_mean <- function(x) {
+  cumsum(x) / seq_along(x)
+}
+
+x <- c(4, 7, 2, 9, 1)
+running_mean(x)
+# [1] 4.00 5.50 4.33 5.50 4.60
+# Element 1: mean(4)       = 4.00
+# Element 2: mean(4,7)     = 5.50
+# Element 3: mean(4,7,2)   = 4.33
+# ...
+
+# Verify against a loop-based version:
+running_mean_loop <- function(x) sapply(seq_along(x), function(i) mean(x[1:i]))
+all.equal(running_mean(x), running_mean_loop(x))  # TRUE
+```
+
+### Exercise 4 — Build a `describe()` extension (skewness and kurtosis)
+
+```r
+skewness <- function(x) {
+  x <- x[!is.na(x)]
+  n <- length(x)
+  m <- mean(x)
+  s <- sd(x)
+  if (s == 0) return(NA)
+  mean((x - m)^3) / s^3
+}
+
+kurtosis <- function(x) {
+  x <- x[!is.na(x)]
+  m <- mean(x)
+  s <- sd(x)
+  if (s == 0) return(NA)
+  mean((x - m)^4) / s^4 - 3   # excess kurtosis (normal dist = 0)
+}
+
+describe_extended <- function(x, name = "x") {
+  x_clean <- x[!is.na(x)]
+  cat(sprintf("\nSummary of %s (%d values, %d NAs):\n",
+              name, length(x_clean), sum(is.na(x))))
+  cat(sprintf("  Min:      %8.4f\n", min(x_clean)))
+  cat(sprintf("  Median:   %8.4f\n", median(x_clean)))
+  cat(sprintf("  Mean:     %8.4f\n", mean(x_clean)))
+  cat(sprintf("  Max:      %8.4f\n", max(x_clean)))
+  cat(sprintf("  SD:       %8.4f\n", sd(x_clean)))
+  cat(sprintf("  Skewness: %8.4f  (0 = symmetric)\n",    skewness(x_clean)))
+  cat(sprintf("  Kurtosis: %8.4f  (0 = normal tails)\n", kurtosis(x_clean)))
+}
+
+set.seed(1)
+describe_extended(rnorm(1000), "normal data")
+describe_extended(rexp(1000),  "exponential data (right-skewed)")
+```
+
+### Exercise 5 — The growing program (compute_stats with requested stats)
+
+Add `compute_stats()` to `analyze.R`. It returns only the statistics that were requested via `--stat=`.
+
+```r
+# --- Addition to analyze.R (Chapter 4) ---
+
+compute_stats <- function(x, stats = c("mean", "sd", "median", "min", "max")) {
+  # x: numeric vector (NAs already removed by caller, or remove here)
+  x <- x[!is.na(x)]
+
+  result <- list()
+  if ("mean"   %in% stats) result$mean   <- mean(x)
+  if ("sd"     %in% stats) result$sd     <- if (length(x) > 1) sd(x) else NA_real_
+  if ("median" %in% stats) result$median <- median(x)
+  if ("min"    %in% stats) result$min    <- if (length(x) > 0) min(x) else NA_real_
+  if ("max"    %in% stats) result$max    <- if (length(x) > 0) max(x) else NA_real_
+  if ("n"      %in% stats) result$n      <- length(x)
+  result
+}
+
+# Parse --stat argument from command line
+stat_arg    <- grep("^--stat=", args, value = TRUE)
+req_stats   <- if (length(stat_arg) > 0)
+                 strsplit(sub("^--stat=", "", stat_arg), ",")[[1]]
+               else
+                 c("mean", "sd", "median", "min", "max")
+
+# Usage:
+values <- c(72000, 48000, 95000, 55000, 83000, 61000)
+result <- compute_stats(values, req_stats)
+
+cat("\nColumn: salary\n")
+for (nm in names(result)) {
+  cat(sprintf("  %-8s = %.2f\n", nm, result[[nm]]))
+}
+
+# Rscript analyze.R data.csv --stat=mean,sd
+# Column: salary
+#   mean     = 69000.00
+#   sd       = 17606.82
+```

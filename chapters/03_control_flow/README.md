@@ -455,3 +455,184 @@ Split on `&`, parse each condition separately, combine the logical vectors with 
 ---
 
 *Next: Chapter 4 — Functions: extract the statistics logic into reusable pieces*
+
+---
+
+## Solutions
+
+### Exercise 1 — Grade classifier
+
+```r
+grade <- function(score) {
+  if      (score >= 90) "A"
+  else if (score >= 80) "B"
+  else if (score >= 70) "C"
+  else if (score >= 60) "D"
+  else                  "F"
+}
+
+grade(95)  # "A"
+grade(82)  # "B"
+grade(70)  # "C"
+grade(55)  # "F"
+```
+
+### Exercise 2 — Collatz sequence
+
+```r
+collatz <- function(n) {
+  stopifnot(n >= 1, n == as.integer(n))
+  seq <- n
+  while (n != 1) {
+    n <- if (n %% 2 == 0) n / 2 else 3 * n + 1
+    seq <- c(seq, n)
+  }
+  seq
+}
+
+s <- collatz(27)
+cat("Sequence length starting from 27:", length(s), "\n")  # 112
+cat("First few values:", head(s, 10), "\n")
+# 27 82 41 124 62 31 94 47 142 71 ...
+```
+
+### Exercise 3 — Sum of digits
+
+```r
+digit_sum <- function(n) {
+  n <- abs(as.integer(n))   # handle negatives; ensure integer
+  total <- 0
+  while (n > 0) {
+    total <- total + n %% 10   # last digit
+    n     <- n %/% 10          # remove last digit
+  }
+  total
+}
+
+digit_sum(12345)   # 15
+digit_sum(0)       # 0
+digit_sum(999)     # 27
+
+# Alternative one-liner using string split:
+digit_sum2 <- function(n) sum(as.integer(strsplit(as.character(abs(n)), "")[[1]]))
+digit_sum2(12345)  # 15
+```
+
+### Exercise 4 — Vectorized FizzBuzz
+
+```r
+# Start with character representation of 1:100
+result <- as.character(1:100)
+
+# Replace in order: first 3, then 5, then 15 last
+# (must do 15 last so it overwrites both)
+result[1:100 %% 3  == 0] <- "Fizz"
+result[1:100 %% 5  == 0] <- "Buzz"
+result[1:100 %% 15 == 0] <- "FizzBuzz"
+
+cat(result, sep = "\n")
+
+# Verify a few key values:
+# result[3]  → "Fizz"
+# result[5]  → "Buzz"
+# result[15] → "FizzBuzz"
+# result[7]  → "7"
+```
+
+### Exercise 5 — Prime factorization
+
+```r
+factorize <- function(n) {
+  stopifnot(n >= 2, n == as.integer(n))
+  factors <- integer(0)
+  d <- 2L
+  while (d * d <= n) {
+    while (n %% d == 0) {
+      factors <- c(factors, d)
+      n <- n %/% d
+    }
+    d <- d + 1L
+  }
+  if (n > 1) factors <- c(factors, as.integer(n))
+  factors
+}
+
+factorize(360)   # 2 2 2 3 3 5
+factorize(97)    # 97  (prime)
+factorize(100)   # 2 2 5 5
+
+# Verify: prod(factorize(360)) == 360 → TRUE
+```
+
+### Exercise 6 — The growing program (multi-condition filter)
+
+Extend `apply_filter()` to handle multiple conditions joined by `&`:
+
+```r
+# parse_filter_multi: split on "&" and parse each condition
+parse_filter_multi <- function(filter_str) {
+  conditions <- strsplit(filter_str, "&")[[1]]
+  lapply(conditions, function(cond) {
+    parts <- regmatches(cond,
+               regexec("^(\\w+)(==|!=|>=|<=|>|<)(.+)$", cond))[[1]]
+    if (length(parts) != 4) stop(paste("Invalid condition:", cond))
+    list(column = parts[2], op = parts[3], value = parts[4])
+  })
+}
+
+apply_filter <- function(col_values, op, threshold) {
+  threshold_num <- suppressWarnings(as.numeric(threshold))
+  if (!is.na(threshold_num)) {
+    switch(op,
+      ">"  = col_values > threshold_num,
+      "<"  = col_values < threshold_num,
+      ">=" = col_values >= threshold_num,
+      "<=" = col_values <= threshold_num,
+      "==" = col_values == threshold_num,
+      "!=" = col_values != threshold_num,
+      stop(paste("Unknown operator:", op))
+    )
+  } else {
+    switch(op,
+      "==" = col_values == threshold,
+      "!=" = col_values != threshold,
+      stop("String ops: == and !=")
+    )
+  }
+}
+
+# Apply all conditions; combine with &
+apply_multi_filter <- function(df, filter_str) {
+  conditions <- parse_filter_multi(filter_str)
+  # Start with all TRUE, AND in each condition
+  keep <- rep(TRUE, nrow(df))
+  for (cond in conditions) {
+    col <- cond$column
+    if (!col %in% names(df)) stop(paste("Column not found:", col))
+    keep <- keep & apply_filter(df[[col]], cond$op, cond$value)
+  }
+  keep
+}
+
+# --- Test ---
+employees <- data.frame(
+  name    = c("Alice","Bob","Carol","Dave","Eve"),
+  salary  = c(72000, 48000, 95000, 55000, 83000),
+  dept    = c("Engineering","Sales","Engineering","HR","Sales"),
+  stringsAsFactors = FALSE
+)
+
+keep <- apply_multi_filter(employees, "salary>50000&dept==Engineering")
+employees[keep, ]
+#    name salary        dept
+# 1 Alice  72000 Engineering
+# 3 Carol  95000 Engineering
+
+# Addition to analyze.R — replace single filter parsing with:
+# filter_arg <- grep("^--filter=", args, value = TRUE)
+# if (length(filter_arg) > 0) {
+#   filter_str <- sub("^--filter=", "", filter_arg)
+#   keep <- apply_multi_filter(df, filter_str)
+#   df   <- df[keep, ]
+# }
+```

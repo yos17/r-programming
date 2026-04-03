@@ -349,3 +349,161 @@ In Chapter 9, we'll add a config system to control which statistics are computed
 ---
 
 *Next: Chapter 9 — Lists and Environments: a config system*
+
+---
+
+## Solutions
+
+### Exercise 1 — Subset and transform
+
+```r
+# Build the patients dataset (from the chapter)
+set.seed(123)
+n <- 200
+patients <- data.frame(
+  id         = sprintf("P%04d", 1:n),
+  age        = round(rnorm(n, 45, 15)),
+  gender     = sample(c("M","F"), n, replace = TRUE),
+  department = sample(c("Cardiology","Neurology","Orthopedics","Emergency"), n, replace=TRUE),
+  los_days   = round(pmax(1, rnorm(n, 5, 3))),
+  cost       = round(pmax(500, rnorm(n, 8000, 4000)), -2),
+  stringsAsFactors = FALSE
+)
+
+# Patients over 60 in Cardiology
+cardio_seniors <- patients[patients$age > 60 & patients$department == "Cardiology", ]
+cat(sprintf("Cardiology patients over 60: %d\n", nrow(cardio_seniors)))
+
+# Add cost_per_day column
+patients$cost_per_day <- patients$cost / patients$los_days
+
+# Top 5 by cost_per_day
+top5 <- head(patients[order(-patients$cost_per_day), c("id","department","los_days","cost","cost_per_day")], 5)
+cat("\nTop 5 patients by cost per day:\n")
+print(top5, row.names = FALSE)
+```
+
+### Exercise 2 — Merge practice
+
+```r
+# Add a treatments column to the existing patients dataset
+set.seed(7)
+treatments <- data.frame(
+  id        = patients$id[sample(n, n, replace = FALSE)],
+  treatment = sample(c("Surgery","Medication","Physical Therapy","Observation"),
+                     n, replace = TRUE),
+  stringsAsFactors = FALSE
+)
+
+# Inner join on id
+merged <- merge(patients, treatments, by = "id")
+
+# Most common treatment per department
+cat("Most common treatment by department:\n")
+for (dept in sort(unique(merged$department))) {
+  sub  <- merged[merged$department == dept, ]
+  freq <- sort(table(sub$treatment), decreasing = TRUE)
+  cat(sprintf("  %-14s → %s (%d)\n", dept, names(freq)[1], freq[1]))
+}
+```
+
+### Exercise 3 — Group statistics
+
+```r
+# Mean, median, min, max of cost, and SD of los_days — by department
+cat("\n--- Cost statistics by department ---\n")
+cost_stats <- aggregate(cost ~ department, data = patients,
+                        FUN = function(x) c(mean=mean(x), median=median(x),
+                                            min=min(x),   max=max(x)))
+# aggregate returns a matrix in the second column; flatten it
+cost_df <- do.call(data.frame, cost_stats)
+names(cost_df) <- c("department", "mean", "median", "min", "max")
+print(round(cost_df, 0), row.names = FALSE)
+
+cat("\n--- LOS SD by department ---\n")
+los_sd <- aggregate(los_days ~ department, data = patients, FUN = sd)
+print(round(los_sd, 2), row.names = FALSE)
+```
+
+### Exercise 4 — Two-way table
+
+```r
+# Add a readmitted column (random, for demonstration)
+set.seed(3)
+patients$readmitted <- sample(c(0, 1), n, replace = TRUE, prob = c(0.8, 0.2))
+
+# Readmission rate by department × gender
+readmit_table <- tapply(patients$readmitted,
+                        list(patients$department, patients$gender),
+                        mean)
+
+cat("\nReadmission rate by department and gender:\n")
+print(round(readmit_table, 3))
+```
+
+### Exercise 5 — The growing program (`--group` for all numeric columns)
+
+```r
+# --- Addition to analyze.R (Chapter 8) ---
+# Replace or extend the existing grouping logic with this version.
+
+# Assumes: df is the (filtered) data frame, group_col from args,
+#          compute_stats() from Chapter 4/5.
+
+group_col   <- get_arg(args, "--group")
+req_stats   <- if (!is.null(get_arg(args, "--stat")))
+                 strsplit(get_arg(args, "--stat"), ",")[[1]]
+               else c("n", "mean", "sd")
+
+if (!is.null(group_col) && group_col %in% names(df)) {
+  cat(sprintf("\nGrouped by: %s\n", group_col))
+
+  # Find all numeric columns (excluding the grouping column)
+  num_cols <- names(df)[sapply(df, is.numeric)]
+  num_cols <- num_cols[num_cols != group_col]
+
+  for (col in num_cols) {
+    cat(sprintf("\n--- %s by %s ---\n", col, group_col))
+
+    groups <- sort(unique(df[[group_col]]))
+    for (g in groups) {
+      x <- df[[col]][df[[group_col]] == g]
+      s <- compute_stats(x[!is.na(x)], req_stats)
+
+      stat_str <- paste(
+        mapply(function(nm, val) {
+          if (is.na(val)) sprintf("%s=NA", nm)
+          else            sprintf("%s=%.2f", nm, val)
+        }, names(s), unlist(s)),
+        collapse="  "
+      )
+      cat(sprintf("  %-20s : %s\n", g, stat_str))
+    }
+  }
+} else {
+  # Overall stats for each numeric column
+  num_cols <- names(df)[sapply(df, is.numeric)]
+  for (col in num_cols) {
+    s <- compute_stats(df[[col]][!is.na(df[[col]])], req_stats)
+    cat(sprintf("\n--- %s ---\n", col))
+    for (nm in names(s)) {
+      val <- s[[nm]]
+      cat(sprintf("  %-8s = %s\n", nm, if (is.na(val)) "NA" else sprintf("%.4f", val)))
+    }
+  }
+}
+
+# Rscript analyze.R employees.csv --group=dept --stat=n,mean,sd
+#
+# Grouped by: dept
+#
+# --- salary by dept ---
+#   Engineering          : n=2.00  mean=83500.00  sd=16263.46
+#   HR                   : n=1.00  mean=55000.00  sd=NA
+#   Sales                : n=2.00  mean=65500.00  sd=24748.74
+#
+# --- years by dept ---
+#   Engineering          : n=2.00  mean=2.50  sd=0.71
+#   HR                   : n=1.00  mean=10.00  sd=NA
+#   Sales                : n=2.00  mean=6.00  sd=1.41
+```

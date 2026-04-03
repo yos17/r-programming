@@ -384,3 +384,175 @@ In Chapter 6, this character-column handling gets extended with regex and string
 ---
 
 *Next: Chapter 6 — Strings: parse string columns, add regex filters*
+
+---
+
+## Solutions
+
+### Exercise 1 — Vector operations
+
+```r
+x <- c(4, 7, 2, 9, 1, 5, 8, 3, 6)
+
+# Elements greater than 5
+x[x > 5]                          # 7 9 8 6
+
+# Every other element (indices 1, 3, 5, ...)
+x[seq(1, length(x), by = 2)]      # 4 2 1 8 6
+
+# Replace all elements less than 3 with 0
+x2 <- x
+x2[x2 < 3] <- 0
+x2                                 # 4 7 0 9 0 5 8 3 6
+
+# 3rd largest element
+sort(x, decreasing = TRUE)[3]      # 8
+
+# Running mean
+cumsum(x) / seq_along(x)
+# 4.00 5.50 4.33 5.50 4.60 4.67 5.14 4.88 5.00
+```
+
+### Exercise 2 — Matrix operations
+
+```r
+m <- matrix(1:25, nrow = 5, ncol = 5, byrow = TRUE)
+m
+#      [,1] [,2] [,3] [,4] [,5]
+# [1,]    1    2    3    4    5
+# [2,]    6    7    8    9   10
+# [3,]   11   12   13   14   15
+# [4,]   16   17   18   19   20
+# [5,]   21   22   23   24   25
+
+# Extract diagonal
+diag(m)           # 1 7 13 19 25
+
+# Row sums
+rowSums(m)        # 15 40 65 90 115
+
+# 3×3 sub-matrix from rows 2–4, columns 2–4
+m[2:4, 2:4]
+#      [,1] [,2] [,3]
+# [1,]    7    8    9
+# [2,]   12   13   14
+# [3,]   17   18   19
+
+# Replace values > 15 with NA
+m2 <- m
+m2[m2 > 15] <- NA
+m2
+```
+
+### Exercise 3 — Moving average
+
+```r
+moving_avg <- function(x, k) {
+  n <- length(x)
+  result <- rep(NA_real_, n)
+  if (k > n) return(result)
+
+  # cumsum trick:
+  # cumsum[i] - cumsum[i-k] = sum of x[(i-k+1):i]
+  cs <- cumsum(x)
+  for (i in k:n) {
+    result[i] <- (cs[i] - if (i > k) cs[i - k] else 0) / k
+  }
+  result
+}
+
+x <- c(1, 2, 3, 4, 5, 6, 7)
+moving_avg(x, 3)
+# NA NA 2 3 4 5 6
+
+# Alternative using filter() — built-in convolution:
+moving_avg2 <- function(x, k) {
+  as.numeric(stats::filter(x, rep(1/k, k), sides = 1))
+}
+moving_avg2(x, 3)
+# NA NA 2 3 4 5 6
+```
+
+### Exercise 4 — Grade analysis extension
+
+```r
+students <- c("Alice","Bob","Carol","Dave","Eve","Frank","Grace","Henry","Iris","Jack")
+
+scores <- matrix(c(
+  85, 92, 78, 88,
+  72, 68, 75, 80,
+  95, 98, 92, 96,
+  60, 55, 62, 58,
+  88, 85, 90, 87,
+  78, 82, 79, 84,
+  93, 91, 95, 89,
+  65, 70, 68, 72,
+  82, 87, 84, 90,
+  75, 79, 77, 81
+), nrow = 10, byrow = TRUE,
+dimnames = list(students, paste("Test", 1:4)))
+
+# Weighted average: T1=20%, T2=20%, T3=25%, T4=35%
+weights <- c(0.20, 0.20, 0.25, 0.35)
+weighted_avg <- scores %*% weights    # matrix × vector = column vector
+cat("Weighted averages:\n")
+for (i in seq_along(students)) {
+  cat(sprintf("  %-8s : %.2f\n", students[i], weighted_avg[i]))
+}
+
+# Students who improved (T4 > T1)
+improved <- students[scores[, 4] > scores[, 1]]
+cat("\nStudents who improved (T4 > T1):", paste(improved, collapse=", "), "\n")
+
+# Correlation between T1 and T4
+r <- cor(scores[, 1], scores[, 4])
+cat(sprintf("\nCorrelation T1 vs T4: %.4f\n", r))
+# A positive value near 1 means students who scored high on T1
+# also tended to score high on T4.
+```
+
+### Exercise 5 — The growing program (character column stats)
+
+Add `compute_stats_char()` to `analyze.R` so string columns are reported meaningfully:
+
+```r
+# --- Addition to analyze.R (Chapter 5) ---
+
+compute_stats_char <- function(x, na.rm = TRUE) {
+  if (na.rm) x <- x[!is.na(x)]
+  freq <- table(x)
+  list(
+    n        = length(x),
+    n_unique = length(unique(x)),
+    top      = names(which.max(freq))   # most common value
+  )
+}
+
+# Updated compute_stats dispatcher:
+compute_stats_col <- function(x, stats = c("mean","sd","median","min","max","n")) {
+  if (is.numeric(x)) {
+    compute_stats(x[!is.na(x)], stats)
+  } else {
+    compute_stats_char(x)
+  }
+}
+
+# Usage in analyze.R main loop:
+# (replace hardcoded data with real df after Chapter 7)
+values_num  <- c(72000, 48000, 95000, 55000, 83000)
+values_char <- c("Engineering","Sales","Engineering","HR","Sales")
+
+cat("\nColumn: salary\n")
+for (nm in names(compute_stats_col(values_num, req_stats))) {
+  cat(sprintf("  %-8s = %.2f\n", nm, compute_stats_col(values_num, req_stats)[[nm]]))
+}
+
+cat("\nColumn: dept\n")
+s <- compute_stats_char(values_char)
+cat(sprintf("  n        = %d\n",  s$n))
+cat(sprintf("  n_unique = %d\n",  s$n_unique))
+cat(sprintf("  top      = %s\n",  s$top))
+# n        = 5
+# n_unique = 4
+# top      = Engineering
+```

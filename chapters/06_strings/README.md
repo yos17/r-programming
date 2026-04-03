@@ -339,3 +339,155 @@ In Chapter 7, when we read real CSV files, every column comes in as character fi
 ---
 
 *Next: Chapter 7 — I/O and Files: read real CSVs, write reports*
+
+---
+
+## Solutions
+
+### Exercise 1 — Email validator
+
+```r
+is_valid_email <- function(x) {
+  # Pattern: one or more word/dot/dash chars before @,
+  # then a domain with at least one dot, ending with 2+ letters
+  pattern <- "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$"
+  grepl(pattern, x)
+}
+
+emails <- c("user@example.com", "bad.email", "another@test.co.uk",
+            "@no-user.com", "user@.com")
+
+result <- data.frame(email = emails, valid = is_valid_email(emails))
+print(result)
+#              email valid
+# 1  user@example.com  TRUE
+# 2        bad.email FALSE
+# 3 another@test.co.uk  TRUE
+# 4      @no-user.com FALSE
+# 5         user@.com FALSE
+```
+
+### Exercise 2 — Extract data from strings
+
+```r
+entries <- c("Alice|30|Engineer", "Bob|25|Designer",
+             "Carol|35|Manager", "Dave|28|Developer")
+
+# Split each entry on "|" and build a data frame
+parsed <- lapply(entries, function(e) {
+  parts <- strsplit(e, "\\|")[[1]]
+  list(name = parts[1], age = as.integer(parts[2]), role = parts[3])
+})
+
+people <- data.frame(
+  name = sapply(parsed, `[[`, "name"),
+  age  = sapply(parsed, `[[`, "age"),
+  role = sapply(parsed, `[[`, "role"),
+  stringsAsFactors = FALSE
+)
+
+print(people)
+#    name age      role
+# 1 Alice  30  Engineer
+# 2   Bob  25  Designer
+# 3 Carol  35   Manager
+# 4  Dave  28 Developer
+```
+
+### Exercise 3 — Caesar cipher
+
+```r
+caesar <- function(text, shift) {
+  # Normalise shift to 0–25
+  shift <- shift %% 26
+
+  chars <- strsplit(text, "")[[1]]
+  shifted <- sapply(chars, function(ch) {
+    code <- utf8ToInt(ch)
+    if (code >= 65 && code <= 90) {         # uppercase A-Z
+      intToUtf8((code - 65 + shift) %% 26 + 65)
+    } else if (code >= 97 && code <= 122) { # lowercase a-z
+      intToUtf8((code - 97 + shift) %% 26 + 97)
+    } else {
+      ch    # leave non-letters unchanged
+    }
+  })
+  paste(shifted, collapse = "")
+}
+
+caesar("Hello, World!", 3)   # "Khoor, Zruog!"
+caesar("Khoor, Zruog!", -3)  # "Hello, World!"  (decode)
+caesar("XYZ", 3)             # "ABC"  (wraps around)
+```
+
+### Exercise 4 — Palindrome checker
+
+```r
+is_palindrome <- function(s) {
+  # Keep only letters, convert to lowercase
+  clean <- tolower(gsub("[^a-zA-Z]", "", s))
+  # Compare the string to its reverse
+  clean == paste(rev(strsplit(clean, "")[[1]]), collapse = "")
+}
+
+is_palindrome("A man a plan a canal Panama")   # TRUE
+is_palindrome("racecar")                        # TRUE
+is_palindrome("hello")                          # FALSE
+is_palindrome("Was it a car or a cat I saw?")   # TRUE
+```
+
+### Exercise 5 — The growing program (compute_stats_char extension)
+
+Add pattern detection and date detection to `compute_stats_char()` for use in Chapter 7 when we read real CSV files:
+
+```r
+# --- Addition to analyze.R (Chapter 6) ---
+
+compute_stats_char <- function(x, na.rm = TRUE, col_name = "?") {
+  if (na.rm) x <- x[!is.na(x)]
+  if (length(x) == 0) return(list(n = 0L, n_unique = 0L, top = NA_character_))
+
+  freq <- table(x)
+
+  result <- list(
+    n        = length(x),
+    n_unique = length(unique(x)),
+    top      = names(which.max(freq))
+  )
+
+  # Pattern: does this column look like dates (YYYY-MM-DD)?
+  is_date <- all(grepl("^\\d{4}-\\d{2}-\\d{2}$", x))
+  if (is_date) {
+    result$type    <- "date"
+    result$min_date <- min(x)   # lexicographic sort works for ISO dates
+    result$max_date <- max(x)
+    cat(sprintf("  Note: column '%s' looks like dates (%s to %s)\n",
+                col_name, result$min_date, result$max_date))
+  } else {
+    result$type <- "character"
+  }
+
+  result
+}
+
+# Usage (simulated):
+depts <- c("Engineering","Sales","Engineering","HR","Sales")
+dates <- c("2026-01-15","2026-03-22","2025-12-01","2026-02-10","2026-04-01")
+
+cat("\nColumn: dept\n")
+s <- compute_stats_char(depts, col_name = "dept")
+cat(sprintf("  n=%d  n_unique=%d  top=%s  type=%s\n",
+            s$n, s$n_unique, s$top, s$type))
+
+cat("\nColumn: hire_date\n")
+s2 <- compute_stats_char(dates, col_name = "hire_date")
+cat(sprintf("  n=%d  n_unique=%d  type=%s  range=%s to %s\n",
+            s2$n, s2$n_unique, s2$type, s2$min_date, s2$max_date))
+
+# Column: dept
+#   n=5  n_unique=4  top=Engineering  type=character
+
+# Note: column 'hire_date' looks like dates (2025-12-01 to 2026-04-01)
+# Column: hire_date
+#   n=5  n_unique=5  type=date  range=2025-12-01 to 2026-04-01
+```

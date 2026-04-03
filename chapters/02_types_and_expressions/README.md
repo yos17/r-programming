@@ -439,3 +439,165 @@ This type-aware parsing — checking what kind of conversion is needed before ap
 ---
 
 *Next: Chapter 3 — Control Flow: add filtering to analyze.R*
+
+---
+
+## Solutions
+
+### Exercise 1 — Type inspection
+
+```r
+class(1)      # "numeric"   — undecorated numbers are doubles
+class(1L)     # "integer"   — the L suffix forces integer storage
+class(TRUE)   # "logical"
+class("1")    # "character"
+class(NA)     # "logical"   — NA without a type suffix is logical NA
+class(NULL)   # "NULL"
+class(Inf)    # "numeric"   — Inf is a special double
+class(NaN)    # "numeric"   — NaN is also a special double
+```
+
+### Exercise 2 — Coercion consequences
+
+```r
+as.numeric(TRUE)        # 1     — TRUE maps to 1
+as.integer(3.9)         # 3     — truncates toward zero, does NOT round
+as.logical(0)           # FALSE — only 0 is FALSE; everything else is TRUE
+as.logical(42)          # TRUE
+as.numeric("3.14abc")   # NA (with warning) — non-numeric string → NA
+TRUE + TRUE + TRUE      # 3     — logical is 0/1 in arithmetic
+```
+
+### Exercise 3 — String manipulation
+
+```r
+# Count characters
+nchar("supercalifragilistic")          # 20
+
+# Uppercase
+toupper("Hello World")                  # "HELLO WORLD"
+
+# Replace all "o" with "0"
+gsub("o", "0", "one two three four")   # "0ne tw0 three f0ur"
+
+# Check if "rain" appears in the string
+grepl("rain", "The rain in Spain")      # TRUE
+
+# Extract characters 5–10 from "Hello, World!"
+substr("Hello, World!", 5, 10)          # "o, Wor"
+```
+
+### Exercise 4 — sprintf formatting
+
+```r
+# Format a receipt with aligned columns
+
+items <- data.frame(
+  name  = c("Widget A", "Widget B", "Widget C"),
+  qty   = c(3, 1, 10),
+  price = c(9.99, 24.99, 1.49)
+)
+items$total <- items$qty * items$price
+
+cat(sprintf("%-12s  %4s  %7s  %7s\n", "Item", "Qty", "Price", "Total"))
+for (i in seq_len(nrow(items))) {
+  cat(sprintf("%-12s  %4d  %7.2f  %7.2f\n",
+              items$name[i], items$qty[i], items$price[i], items$total[i]))
+}
+cat(sprintf("%s\n", strrep("-", 37)))
+cat(sprintf("%-12s  %4s  %7s  %7.2f\n", "", "", "Total:", sum(items$total)))
+
+# Item          Qty    Price    Total
+# Widget A        3     9.99    29.97
+# Widget B        1    24.99    24.99
+# Widget C       10     1.49    14.90
+# -------------------------------------
+#                        Total:  69.86
+```
+
+### Exercise 5 — The growing program (temperature conversion)
+
+Add temperature handling to `analyze.R`. Temperature can't use simple multiplication factors because Celsius, Fahrenheit, and Kelvin all have different zero points.
+
+```r
+# analyze.R — Chapter 2, Exercise 5
+# Adds temperature conversion to the --units flag
+
+args <- commandArgs(trailingOnly = TRUE)
+
+if (length(args) < 1) {
+  cat("Usage: Rscript analyze.R <file.csv> [--units=from:to:value]\n")
+  quit(status = 1)
+}
+
+filename <- args[1]
+
+if (!file.exists(filename)) {
+  cat("Error: file not found:", filename, "\n")
+  quit(status = 1)
+}
+
+cat("analyze.R\n")
+cat("File:", filename, "\n")
+cat("Date:", format(Sys.time(), "%Y-%m-%d %H:%M:%S"), "\n")
+
+# --- Unit conversion (length/mass) ---
+factors <- c(
+  m = 1, km = 1000, cm = 0.01, inch = 0.0254,
+  foot = 0.3048, mile = 1609.344,
+  kg = 1, g = 0.001, lb = 0.453592
+)
+
+# Temperature units that need special-case handling
+temp_units <- c("C", "F", "K")
+
+convert_temp <- function(value, from, to) {
+  # Convert 'from' unit → Celsius first, then Celsius → 'to' unit
+  celsius <- if (from == "C") value
+             else if (from == "F") (value - 32) * 5 / 9
+             else if (from == "K") value - 273.15
+             else stop(paste("Unknown temperature unit:", from))
+
+  if (to == "C") celsius
+  else if (to == "F") celsius * 9 / 5 + 32
+  else if (to == "K") celsius + 273.15
+  else stop(paste("Unknown temperature unit:", to))
+}
+
+unit_arg <- grep("^--units=", args, value = TRUE)
+if (length(unit_arg) > 0) {
+  parts <- strsplit(sub("^--units=", "", unit_arg), ":")[[1]]
+  if (length(parts) == 3) {
+    from  <- parts[1]
+    to    <- parts[2]
+    value <- as.numeric(parts[3])
+
+    if (is.na(value)) {
+      cat("Error: invalid numeric value\n")
+    } else if (from %in% temp_units || to %in% temp_units) {
+      # Temperature path
+      if (!(from %in% temp_units && to %in% temp_units)) {
+        cat("Error: cannot mix temperature and non-temperature units\n")
+      } else {
+        result <- convert_temp(value, from, to)
+        cat(sprintf("%.4g %s = %.4g %s\n", value, from, result, to))
+      }
+    } else if (from %in% names(factors) && to %in% names(factors)) {
+      # Standard multiplication path
+      result <- value * factors[[from]] / factors[[to]]
+      cat(sprintf("%.4g %s = %.4g %s\n", value, from, result, to))
+    } else {
+      cat("Error: unknown unit(s):", from, "or", to, "\n")
+    }
+  }
+}
+
+# Rscript analyze.R data.csv --units=C:F:100
+# 100 C = 212 F
+
+# Rscript analyze.R data.csv --units=F:C:32
+# 32 F = 0 C
+
+# Rscript analyze.R data.csv --units=K:C:373.15
+# 373.15 K = 100 C
+```

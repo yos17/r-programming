@@ -301,3 +301,125 @@ Error: file not found: missing.csv
 ---
 
 *Next: Chapter 2 — Types and Expressions: parse the file, convert units*
+
+---
+
+## Solutions
+
+### Exercise 1 — Calculator
+
+```r
+# calc.R
+
+# Area of a circle with radius 7
+r <- 7
+area <- pi * r^2
+cat(sprintf("Circle area (r=7): %.4f\n", area))
+# Circle area (r=7): 153.9380
+
+# Hypotenuse of a 3-4-5 right triangle
+a <- 3; b <- 4
+hyp <- sqrt(a^2 + b^2)
+cat(sprintf("Hypotenuse (3,4): %.4f\n", hyp))
+# Hypotenuse (3,4): 5.0000
+
+# Compound interest: P=1000, r=7%, n=5 years
+P <- 1000; r_rate <- 0.07; n <- 5
+amount <- P * (1 + r_rate)^n
+cat(sprintf("Compound interest (P=1000, r=7%%, n=5): %.2f\n", amount))
+# Compound interest (P=1000, r=7%, n=5): 1402.55
+```
+
+### Exercise 2 — Explore `round()`
+
+```r
+round(2.5)   # 2  ← banker's rounding: round to nearest EVEN number
+round(3.5)   # 4  ← 4 is the nearest even number
+round(4.5)   # 4  ← 4 is even
+round(5.5)   # 6  ← 6 is even
+
+# Banker's rounding (a.k.a. "round half to even") avoids cumulative
+# bias in statistical calculations: half the time you round up, half
+# the time down, so rounding errors cancel out on average.
+```
+
+### Exercise 3 — Message formatting
+
+Add the date/time line to `analyze.R`:
+
+```r
+# analyze.R — Chapter 1, Exercise 3
+args <- commandArgs(trailingOnly = TRUE)
+
+if (length(args) < 1) {
+  cat("Usage: Rscript analyze.R <file.csv>\n")
+  quit(status = 1)
+}
+
+filename <- args[1]
+cat("analyze.R\n")
+cat("File:", filename, "\n")
+cat("Date:", format(Sys.time(), "%Y-%m-%d %H:%M:%S"), "\n")
+
+# Example output:
+# analyze.R
+# File: mydata.csv
+# Date: 2026-04-02 22:06:00
+```
+
+### Exercise 4 — Two arguments
+
+```r
+# analyze.R — Chapter 1, Exercise 4
+args <- commandArgs(trailingOnly = TRUE)
+
+if (length(args) < 1) {
+  cat("Usage: Rscript analyze.R <file.csv> [--verbose]\n")
+  quit(status = 1)
+}
+
+filename <- args[1]
+verbose  <- "--verbose" %in% args   # TRUE if --verbose was passed
+
+cat("analyze.R\n")
+cat("File:", filename, "\n")
+
+if (verbose) {
+  cat("Verbose mode: ON\n")
+  cat("R version:", R.version.string, "\n")
+  cat("Working dir:", getwd(), "\n")
+  cat("Timestamp:", format(Sys.time(), "%Y-%m-%d %H:%M:%S"), "\n")
+}
+
+# Run:  Rscript analyze.R data.csv           → quiet output
+# Run:  Rscript analyze.R data.csv --verbose → extra info printed
+```
+
+### Exercise 5 — The growing program (file existence check)
+
+This is the key addition that carries into Chapter 2:
+
+```r
+# analyze.R — Chapter 1, Exercise 5
+args <- commandArgs(trailingOnly = TRUE)
+
+if (length(args) < 1) {
+  cat("Usage: Rscript analyze.R <file.csv>\n")
+  quit(status = 1)
+}
+
+filename <- args[1]
+
+# NEW: check the file actually exists before proceeding
+if (!file.exists(filename)) {
+  cat("Error: file not found:", filename, "\n")
+  quit(status = 1)
+}
+
+cat("analyze.R\n")
+cat("File:", filename, "\n")
+cat("Date:", format(Sys.time(), "%Y-%m-%d %H:%M:%S"), "\n")
+
+# Rscript analyze.R missing.csv
+# Error: file not found: missing.csv
+```
